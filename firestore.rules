@@ -1,0 +1,71 @@
+// =============================================================================
+// Firestore Security Rules — Project Tracker
+// =============================================================================
+// Paste the ACTIVE block into: Firebase Console -> Firestore -> Rules.
+// Keep only ONE block uncommented at a time.
+// =============================================================================
+
+
+// -----------------------------------------------------------------------------
+// (A) DEVELOPMENT — fully open. Anyone with the project ID can read & write.
+//     Convenient for testing. DO NOT leave this on a public deployment.
+// -----------------------------------------------------------------------------
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;   // ⚠️ DEV ONLY
+    }
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// (B) PRODUCTION — require an authenticated user.
+//     1. Enable Firebase Authentication (e.g. Google / Email).
+//     2. Add a sign-in step to the app.
+//     3. Replace block (A) above with the block below.
+// -----------------------------------------------------------------------------
+// rules_version = '2';
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//
+//     match /meta/{doc} {
+//       allow read, write: if request.auth != null;
+//     }
+//
+//     match /projects/{projectId} {
+//       allow read, write: if request.auth != null;
+//
+//       match /activities/{activityId} {
+//         allow read, write: if request.auth != null;
+//       }
+//     }
+//   }
+// }
+
+
+// -----------------------------------------------------------------------------
+// (C) PRODUCTION + ALLOW-LIST — only specific people (by email).
+//     Tightest of the three. Edit the email list to suit your team.
+// -----------------------------------------------------------------------------
+// rules_version = '2';
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//     function allowed() {
+//       return request.auth != null && request.auth.token.email in [
+//         "you@example.com",
+//         "teammate@example.com"
+//       ];
+//     }
+//     match /meta/{doc} {
+//       allow read, write: if allowed();
+//     }
+//     match /projects/{projectId} {
+//       allow read, write: if allowed();
+//       match /activities/{activityId} {
+//         allow read, write: if allowed();
+//       }
+//     }
+//   }
+// }

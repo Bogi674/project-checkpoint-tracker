@@ -4,13 +4,14 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Project Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
-    --bg:#f2f2f6; --surface:#fff; --headbg:#f6f6f8; --grpbg:#f0f1f4;
+    --bg:#ececf1; --surface:#fff; --headbg:#f6f6f8;
     --ink:#1c1c1e; --ink2:#3a3a3c; --label:#8a8a8e; --label3:#aeaeb2;
     --line:#e2e2e7; --line2:#d6d6db; --blue:#0a84ff; --indigo:#5e5ce6;
     --green:#2bb24c; --amber:#f0a500; --gray:#8a8a8e;
-    --radius:12px;
+    --card-radius:11px;
     --w-no:46px; --w-project:230px; --w-activities:182px;
   }
   *{box-sizing:border-box}
@@ -23,10 +24,14 @@
   /* ---------- top bar ---------- */
   .topbar{
     flex:0 0 auto; display:flex; align-items:center; gap:12px;
-    padding:13px 20px; background:rgba(246,246,248,.82); backdrop-filter:saturate(180%) blur(20px);
+    padding:11px 20px; background:rgba(246,246,248,.85); backdrop-filter:saturate(180%) blur(20px);
     border-bottom:1px solid var(--line); z-index:50;
   }
-  .topbar h1{font-size:17px; font-weight:600; margin:0; letter-spacing:-.02em}
+  .title-block{display:flex; flex-direction:column; gap:1px}
+  .title-row{display:flex; align-items:center; gap:8px}
+  .title-row h1{font-size:16.5px; font-weight:600; margin:0; letter-spacing:-.02em}
+  .ver{font-size:10.5px; font-weight:650; color:var(--indigo); background:#e9e9f8; padding:2px 7px; border-radius:7px; letter-spacing:.01em}
+  .subtitle{font-size:11px; color:var(--label); letter-spacing:.01em}
   .topbar .spacer{flex:1}
   .btn{
     display:inline-flex; align-items:center; gap:6px; border:none; cursor:pointer;
@@ -41,60 +46,77 @@
   .btn .ic{display:inline-flex; width:15px; height:15px}
   .btn .ic svg{width:100%; height:100%}
 
-  /* ---------- scroll container (single scroll context => sticky works both ways) ---------- */
-  .wrap{flex:1 1 auto; overflow:auto; padding:16px 16px 80px; position:relative}
-  .card{
-    background:var(--surface); border-radius:var(--radius); border:1px solid var(--line);
-    overflow:hidden; width:max-content; min-width:100%;
-  }
+  /* ---------- single scroll container (so sticky works in both directions, bug 2) ---------- */
+  .wrap{flex:1 1 auto; overflow:auto; padding:0 16px 80px; position:relative}
 
-  table.grid{border-collapse:separate; border-spacing:0; table-layout:fixed; width:max-content}
+  table.grid{border-collapse:separate; border-spacing:0; table-layout:fixed; width:max-content; min-width:100%}
   table.grid th, table.grid td{
     border-right:1px solid var(--line); border-bottom:1px solid var(--line);
     padding:10px 12px; font-size:13.5px; vertical-align:top; background:var(--surface);
-    overflow:hidden;
   }
-  /* vertical separators are the cell border-rights above (bug 6) */
+  table.grid td{overflow:hidden}
 
-  /* ---------- header: fixed 2-row sticky, never grows on collapse (bugs 1,2,4) ---------- */
+  /* ---------- header: fixed 2-row sticky, rounded like a card (bugs 1,2,4) ---------- */
+  thead .grp th, thead .sub th, thead .cp-collapsed-h{position:sticky; background:var(--headbg)}
   thead .grp th{
-    position:sticky; top:0; z-index:30; height:34px; padding:0 12px;
-    background:var(--headbg); color:var(--label); font-weight:600; font-size:11.5px;
-    letter-spacing:.02em; text-transform:uppercase; vertical-align:middle; white-space:nowrap;
-    border-bottom:1px solid var(--line);
+    top:0; z-index:40; height:34px; padding:0 12px;
+    color:var(--label); font-weight:600; font-size:11.5px; letter-spacing:.02em;
+    text-transform:uppercase; vertical-align:middle; white-space:nowrap; overflow:hidden;
+    border-top:1px solid var(--line); border-bottom:1px solid var(--line);
   }
   thead .sub th{
-    position:sticky; top:34px; z-index:30; height:30px; padding:0 12px;
-    background:var(--headbg); color:var(--label); font-weight:600; font-size:11px;
-    letter-spacing:.02em; text-transform:uppercase; vertical-align:middle; white-space:nowrap;
+    top:34px; z-index:40; height:30px; padding:0 12px;
+    color:var(--label); font-weight:600; font-size:11px; letter-spacing:.02em;
+    text-transform:uppercase; vertical-align:middle; white-space:nowrap; overflow:hidden;
     border-bottom:1px solid var(--line);
   }
-  /* rowspan-2 group cells bottom border lands on the SAME line as the sub row => the
-     "Status | Add Checkpoint" seam meets perfectly (bug 2) */
   thead .grp th.rspan{height:64px}
+  /* frozen header corner cells sit ABOVE the scrolling header (Excel-style freeze, bugs 1,2) */
+  thead .grp th.c-no, thead .grp th.c-project, thead .grp th.c-activities{
+    position:sticky; top:0; z-index:60; background:var(--headbg);
+  }
+  thead .grp th.c-no{left:0; border-left:1px solid var(--line);
+    border-top-left-radius:var(--card-radius); border-bottom-left-radius:var(--card-radius)}
+  thead .grp th.c-project{left:var(--w-no)}
+  thead .grp th.c-activities{left:calc(var(--w-no) + var(--w-project))}
+  /* rounded right edge of the header card (bug 4) */
+  thead tr.grp th:last-child{border-top-right-radius:var(--card-radius); border-bottom-right-radius:var(--card-radius)}
   thead .cpgrp{text-transform:none; font-size:12px; color:var(--ink2); text-align:center}
-  thead .cpgrp .cpdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--blue);margin-right:6px;vertical-align:middle}
-  thead .cpgrp .cplabel{vertical-align:middle; cursor:default}
-  thead .cpgrp .cpmenu-btn{margin-left:7px; cursor:pointer; color:var(--label); width:14px;height:14px;display:inline-flex;vertical-align:middle;border-radius:5px}
+  thead .cpgrp .cplabel{vertical-align:middle; cursor:default; display:inline-block}
+  thead .cpgrp .cpmenu-btn{margin-left:6px; cursor:pointer; color:var(--label); width:14px;height:14px;display:inline-flex;vertical-align:middle;border-radius:5px}
   thead .cpgrp .cpmenu-btn:hover{background:#e2e2e8; color:var(--ink2)}
   thead .cpgrp .cpmenu-btn svg{width:100%;height:100%}
 
-  /* frozen left columns */
-  .c-no{position:sticky; left:0; z-index:20; width:var(--w-no); text-align:center; color:var(--label); font-weight:600}
-  .c-project{position:sticky; left:var(--w-no); z-index:20; width:var(--w-project)}
-  .c-activities{position:sticky; left:calc(var(--w-no) + var(--w-project)); z-index:20; width:var(--w-activities)}
-  /* frozen header corner cells must sit above frozen body + header */
-  thead .c-no, thead .c-project, thead .c-activities{z-index:40}
-  /* subtle right edge to mark the frozen boundary */
-  .c-activities{box-shadow:6px 0 8px -8px rgba(0,0,0,.18)}
+  /* ---------- active checkpoint highlight (iOS soft tint, bug 3) ---------- */
+  thead .cpgrp.cp-active-h{background:#eef0ff; border-bottom-color:#d9d8f6}
+  .cp-active-h .cplabel{background:rgba(94,92,230,.15); color:var(--indigo); font-weight:700; padding:3px 11px; border-radius:11px}
+  .cp-active-h .cpmenu-btn{color:var(--indigo)}
+  thead .sub.cp-active-sub{background:#f4f5ff; color:#7c82cc; border-bottom-color:#d9d8f6}
+  td.cp-active-cell{background:#f6f7ff}
+
+  /* frozen left columns — body (Excel-style freeze: stay above scrolling cells) */
+  .c-no{position:sticky; left:0; z-index:30; width:var(--w-no); text-align:center; color:var(--label); font-weight:600}
+  .c-project{position:sticky; left:var(--w-no); z-index:30; width:var(--w-project)}
+  .c-activities{position:sticky; left:calc(var(--w-no) + var(--w-project)); z-index:30; width:var(--w-activities)}
+  td.c-no, td.c-project, td.c-activities{background:var(--surface)}
+  .c-activities{box-shadow:6px 0 8px -8px rgba(0,0,0,.16)}
 
   /* No. cell — top aligned to the project title (bug 5) */
   td.c-no{vertical-align:top; padding-top:14px; font-size:13px}
 
+  /* ---------- per-project card edges + corners (bug 7) ---------- */
+  .rtop{border-top:1px solid var(--line)}
+  td.blk-left{border-left:1px solid var(--line)}
+  td.blk-tl{border-top-left-radius:var(--card-radius)}
+  td.blk-bl{border-bottom-left-radius:var(--card-radius)}
+  td.blk-tr{border-top-right-radius:var(--card-radius)}
+  td.blk-br{border-bottom-right-radius:var(--card-radius)}
+  tr.gaprow td.gap{background:var(--bg); border:none; height:14px; padding:0}
+
   /* ---------- project panel ---------- */
   td.c-project{padding:12px 13px}
   .pj-name{font-size:14.5px; font-weight:650; letter-spacing:-.01em; line-height:1.3; cursor:text; outline:none}
-  .pj-desc{font-size:11.5px; color:var(--label); line-height:1.4; margin-top:3px; cursor:text; outline:none}
+  .pj-desc{font-size:11.5px; color:var(--label); line-height:1.4; margin-top:7px; cursor:text; outline:none}
   .pj-bar-wrap{display:flex; align-items:center; gap:8px; margin:11px 0 9px}
   .pj-bar{flex:1; height:6px; border-radius:4px; background:#e7e7ec; overflow:hidden}
   .pj-bar > i{display:block; height:100%; background:var(--blue); border-radius:4px; transition:width .3s}
@@ -115,7 +137,7 @@
   td.c-activities{padding-right:8px}
   .act-row{display:flex; align-items:flex-start; gap:6px}
   .act-name{flex:1; font-weight:550; font-size:13.5px; line-height:1.35; cursor:text; outline:none; white-space:pre-wrap}
-  .act-del{flex:0 0 auto; cursor:pointer; color:var(--label3); width:16px;height:16px; opacity:.0; transition:opacity .12s; margin-top:1px}
+  .act-del{flex:0 0 auto; cursor:pointer; color:var(--label3); width:16px;height:16px; opacity:0; transition:opacity .12s; margin-top:1px}
   tr:hover .act-del{opacity:.85}
   .act-del:hover{color:#e24b4a}
   .act-del svg{width:100%;height:100%}
@@ -145,30 +167,29 @@
   .addcp-btn .cap{font-size:11px; font-weight:600; color:var(--label)}
 
   /* ---------- collapsed checkpoint column ---------- */
-  th.cp-collapsed-h{cursor:pointer; background:var(--headbg); padding:0; text-align:center; width:40px}
+  th.cp-collapsed-h{cursor:pointer; padding:0; text-align:center; width:40px}
   th.cp-collapsed-h:hover{background:#ececf1}
   .cpc-inner{display:flex; flex-direction:column; align-items:center; gap:6px; height:100%; justify-content:center; padding:6px 0}
   .cpc-chev{width:12px;height:12px;color:var(--label3)}
   .cpc-chev svg{width:100%;height:100%}
   .cpc-lbl{writing-mode:vertical-rl; transform:rotate(180deg); font-size:10.5px; font-weight:600; color:var(--label);
-    white-space:nowrap; letter-spacing:0; max-height:30px; overflow:hidden; text-transform:none; text-overflow:ellipsis}
+    white-space:nowrap; max-height:30px; overflow:hidden; text-transform:none; text-overflow:ellipsis}
   td.cp-collapsed-c{cursor:pointer; text-align:center; vertical-align:middle; width:40px; background:#fafafc}
   td.cp-collapsed-c:hover{background:#f1f1f6}
   .cpc-dot{display:inline-block; width:11px;height:11px;border-radius:50%; box-shadow:inset 0 0 0 .5px rgba(0,0,0,.12)}
 
-  /* ---------- add activity row (under Activities col only, blanks elsewhere) (bug 3) ---------- */
+  /* ---------- add activity row (under Activities col only) (bug 3) ---------- */
   tr.addrow td{background:var(--surface)}
   td.addact{padding:8px 12px}
   .addact-btn{display:inline-flex; align-items:center; gap:6px; cursor:pointer; color:var(--blue); font-size:13px; font-weight:600; padding:5px 9px; border-radius:8px}
   .addact-btn:hover{background:#eaf2ff}
   .addact-btn .ic{width:15px;height:15px}
   .addact-btn .ic svg{width:100%;height:100%}
-  td.blank-cell{background:#fcfcfd}
 
   /* add project footer */
-  .add-proj-wrap{padding:14px}
-  .add-proj{display:flex; align-items:center; justify-content:center; gap:7px; width:100%; padding:11px;
-    border:1.5px dashed var(--line2); border-radius:10px; background:transparent; cursor:pointer;
+  .add-proj-wrap{padding:14px 0 0; position:sticky; left:0; z-index:10}
+  .add-proj{display:flex; align-items:center; justify-content:center; gap:7px; width:100%; padding:12px;
+    border:1.5px dashed var(--line2); border-radius:11px; background:transparent; cursor:pointer;
     color:var(--blue); font:inherit; font-size:13.5px; font-weight:600}
   .add-proj:hover{background:#eaf2ff; border-color:var(--blue)}
   .add-proj .ic{width:16px;height:16px}.add-proj .ic svg{width:100%;height:100%}
@@ -183,14 +204,10 @@
   .mini-btn{font-size:11px; font-weight:600; padding:4px 8px; border-radius:7px; border:1px solid var(--line2); background:#fff; cursor:pointer}
   .mini-btn:hover{background:#f2f2f6}
 
-  /* ---------- resizer ---------- */
-  .rz{position:absolute; top:0; right:-3px; width:7px; height:100%; cursor:col-resize; z-index:35}
-  .rz:after{content:""; position:absolute; top:0; right:3px; width:2px; height:100%; background:transparent}
-  .rz:hover:after{background:var(--blue)}
-  thead th{position:sticky}
-  thead .grp th, thead .sub th, thead .cp-collapsed-h{position:sticky}
-  th.resizable{position:sticky}
-  th .rzhost{position:relative; display:block}
+  /* ---------- resizer (drag the column border, bug 1) ---------- */
+  .rz{position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize; z-index:36}
+  .rz::after{content:""; position:absolute; right:1px; top:5px; bottom:5px; width:2px; border-radius:2px; background:transparent}
+  .rz:hover::after{background:var(--blue)}
 
   /* ---------- menus & dialogs ---------- */
   .menu{position:fixed; z-index:200; background:rgba(255,255,255,.96); backdrop-filter:blur(20px) saturate(180%);
@@ -223,162 +240,113 @@
     z-index:400; transition:all .25s; backdrop-filter:blur(10px); pointer-events:none}
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
 
-  /* ---------- connection status ---------- */
-  .conn-badge{
-    display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:550;
-    padding:5px 10px; border-radius:8px; background:#f0f0f5; color:var(--label);
-  }
-  .conn-badge .dot{width:7px;height:7px;border-radius:50%;background:#c5c5cc;flex:0 0 auto;transition:background .3s}
+  .conn-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:550;
+    padding:5px 11px;border-radius:8px;background:#f0f0f5;color:var(--label)}
+  .conn-badge .dot{width:7px;height:7px;border-radius:50%;background:#c5c5cc;flex:0 0 auto;transition:background .4s}
   .conn-badge.online .dot{background:var(--green)}
   .conn-badge.offline .dot{background:#e24b4a}
-  .conn-badge.connecting .dot{background:var(--amber);animation:pulse 1s infinite}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-
-  /* ---------- setup banner (shown when Firebase is not configured) ---------- */
-  .setup-banner{
-    position:fixed; inset:0; z-index:500; background:rgba(0,0,0,.55);
-    display:flex; align-items:center; justify-content:center; padding:20px;
-  }
-  .setup-box{
-    background:#fff; border-radius:18px; width:520px; max-width:100%; padding:28px 28px 24px;
-    box-shadow:0 24px 70px rgba(0,0,0,.35); animation:pop .2s;
-  }
-  .setup-box h2{margin:0 0 6px; font-size:19px; font-weight:700}
-  .setup-box .sub{margin:0 0 18px; font-size:13.5px; color:var(--label); line-height:1.5}
-  .setup-box ol{margin:0 0 18px; padding-left:20px; font-size:13.5px; line-height:2; color:var(--ink2)}
-  .setup-box ol b{color:var(--ink)}
-  .setup-box .cfg{width:100%; border:1.5px solid var(--line2); border-radius:9px; padding:10px 12px; font-family:monospace; font-size:12.5px; height:180px; resize:vertical; outline:none; color:var(--ink); background:#fafafc}
-  .setup-box .cfg:focus{border-color:var(--blue)}
-  .setup-box .row{display:flex; gap:10px; margin-top:14px}
-  .setup-box .note{font-size:11.5px; color:var(--label); margin-top:10px; line-height:1.5}
+  .conn-badge.connecting .dot{background:var(--amber);animation:blink 1.1s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 </style>
-
 </head>
-  
 <body>
   <div class="topbar">
-    <h1>Project Tracker</h1>
+    <div class="title-block">
+      <div class="title-row"><h1>Project Tracker</h1><span class="ver">v1.1</span></div>
+      <div class="subtitle">by ACC ONE Product Management</div>
+    </div>
     <div class="spacer"></div>
     <div class="conn-badge connecting" id="connBadge"><span class="dot"></span><span id="connLabel">Connecting…</span></div>
-    <button class="btn btn-light" id="historyBtn"><span class="ic" data-ic="eyeOff"></span><span class="lbl">Collapse history</span></button>
     <button class="btn btn-light" id="exportBtn"><span class="ic" data-ic="download"></span>Export to Excel</button>
     <button class="btn btn-primary" id="addProjectBtn"><span class="ic" data-ic="plus"></span>Add Project</button>
   </div>
 
   <div class="wrap">
-    <div class="card">
-      <table class="grid" id="grid"></table>
-      <div class="add-proj-wrap">
-        <button class="add-proj" id="addProjectBtn2"><span class="ic" data-ic="plus"></span>Add Project</button>
-      </div>
+    <table class="grid" id="grid"></table>
+    <div class="add-proj-wrap">
+      <button class="add-proj" id="addProjectBtn2"><span class="ic" data-ic="plus"></span>Add Project</button>
     </div>
   </div>
 
   <div class="toast" id="toast"></div>
 
 <script type="module">
-<script type="module">
-  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  // Import Firestore specific functions
-  import { getFirestore, doc, setDoc, getDoc, onSnapshot, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+/* =========================================================================
+   Firebase (Cloud Firestore) — modular SDK
+   ========================================================================= */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot }
+  from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
 
-  /* =========================================================================
-     Firebase Configuration
-     =========================================================================
-     SETUP INSTRUCTIONS:
-     1. Go to https://console.firebase.google.com/ → "Add project"
-     2. Inside the project: Build → Firestore Database → Create database
-        (choose a region → start in "test mode" for 30-day open access)
-     3. Go to Project Settings ⚙ → General → "Your apps" → </> Web
-        (register app if not done) → copy the firebaseConfig object values below
-     ========================================================================= */
+const firebaseConfig = {
+  apiKey:            "AIzaSyC736u8OFuc-yS2f1j9vFb1xAKE9pMhkIQ",
+  authDomain:        "project-tracker-3deab.firebaseapp.com",
+  projectId:         "project-tracker-3deab",
+  storageBucket:     "project-tracker-3deab.firebasestorage.app",
+  messagingSenderId: "366111364398",
+  appId:             "1:366111364398:web:8b5b47af6890a502ce96bf"
+};
 
-  // ── PASTE YOUR ACTUAL FIREBASE CONFIG HERE ──────────────────────────────────────
-  const firebaseConfig = {
-    apiKey: "AIzaSyC736u8OFuc-yS2f1j9vFb1xAKE9pMhkIQ",
-    authDomain: "project-tracker-3deab.firebaseapp.com",
-    projectId: "project-tracker-3deab",
-    storageBucket: "project-tracker-3deab.firebasestorage.app",
-    messagingSenderId: "366111364398",
-    appId: "1:366111364398:web:8b5b47af6890a502ce96bf"
-  };
-  // ─────────────────────────────────────────────────────────────────────────
+const fbApp = initializeApp(firebaseConfig);
+const fdb   = getFirestore(fbApp);
+// ↓ Change these two names if your Firestore collection/document are named differently
+const DOCREF = doc(fdb, "project_tracker", "main");
 
-let DATA=null, editKey=null;
-let DOCREF_FS = null; // Renamed to avoid confusion, for Firestore document reference
-let db_fs = null; // Reference to the Firestore service
-let _lastSaveJSON="";
-
-async function initFirebase(){
-  const missing = Object.values(firebaseConfig).some(v => v === "" || v.includes("YOUR_")); // Check if placeholders are still present
-  if(missing){ showSetupBanner(); return false; }
-  try{
-    const app = initializeApp(firebaseConfig);
-    db_fs = getFirestore(app);
-    DOCREF_FS = doc(db_fs, "project_tracker", "main"); // Correct modular way to get doc ref
-
-    // Enable offline persistence for Firestore
-    try {
-      await enableIndexedDbPersistence(db_fs, { synchronizeTabs: true });
-    } catch (err) {
-      if (err.code === "failed-precondition") console.warn("Firestore persistence: multiple tabs open — only one tab gets persistence.");
-      else if (err.code === "unimplemented") console.warn("Firestore persistence not supported in this browser.");
-    }
-    return true;
-  }catch(e){ console.error("Firebase init error:",e); alert("Firebase init failed: "+e.message); return false; }
+function setConnBadge(state, label){
+  const b = document.getElementById("connBadge");
+  const l = document.getElementById("connLabel");
+  if(b) b.className = "conn-badge " + state;
+  if(l) l.textContent = label;
 }
 
-function showSetupBanner(){
-  const badge=document.getElementById("connBadge");
-  if(badge){badge.className="conn-badge offline";document.getElementById("connLabel").textContent="Not configured";}
-  // Pre-fill textarea with a template
-  const tpl=`{
-  "apiKey": "...",
-  "authDomain": "...",
-  "projectId": "...",
-  "storageBucket": "...",
-  "messagingSenderId": "...",
-  "appId": "..."
-}`;
-  const bx=document.createElement("div");
-  bx.className="setup-banner";
-  bx.innerHTML=`<div class="setup-box">
-  <h2>🔧 Connect to Firebase</h2>
-  <p class="sub">This tracker needs a Firebase Firestore Database to share data across users. Takes ~5 minutes:</p>
-  <ol>
-    <li>Go to <b>console.firebase.google.com</b> → Add project</li>
-    <li>Build → <b>Firestore Database</b> → Create database (test mode)</li>
-    <li>Project Settings ⚙ → General → Your apps → <b>Config</b></li>
-    <li>Paste the config JSON below:</li>
-  </ol>
-  <textarea class="cfg" id="cfgInput" spellcheck="false">${tpl}</textarea>
-  <div class="row">
-    <button class="btn btn-primary" style="flex:1" id="cfgSave">Connect &amp; Save</button>
-    <button class="btn btn-light" id="cfgSkip">Use local only</button>
-  </div>
-  <p class="note">The config is saved in your browser. Anyone who opens the hosted URL with a configured file will share the same database automatically.</p>
-  </div>`;
-  document.body.appendChild(bx);
-  document.getElementById("cfgSave").onclick=()=>{
-    try{
-      const val=JSON.parse(document.getElementById("cfgInput").value.trim());
-      const required=["apiKey","authDomain","projectId","storageBucket","messagingSenderId","appId"];
-      const missing2=required.filter(k=>!val[k]);
-      if(missing2.length){ alert("Missing fields: "+missing2.join(", ")); return; }
-      localStorage.setItem("pt_fbcfg",JSON.stringify(val));
-      bx.remove();
-      location.reload();
-    }catch(e){ alert("Invalid JSON: "+e.message); }
-  };
-  document.getElementById("cfgSkip").onclick=()=>{ bx.remove(); loadLocal(); };
+/* =========================================================================
+   Icons
+   ========================================================================= */
+const ICONS={
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>',
+  download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
+  chevDown:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+  chevRight:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  dots:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
+  eyeOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20C5 20 1 12 1 12a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22M9.88 9.88a3 3 0 0 0 4.24 4.24"/></svg>',
+  eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+  pencil:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg>',
+  layers:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>',
+  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>'
+};
+
+/* =========================================================================
+   Status meta
+   ========================================================================= */
+const STATUS=["backlog","prog","done","cancel"];
+const STMETA={
+  backlog:{label:"Backlog", cls:"back"},
+  prog:   {label:"On Progress", cls:"prog"},
+  done:   {label:"Done", cls:"done"},
+  cancel: {label:"Cancelled", cls:"cancel"}
+};
+const SUMDOT={backlog:"#c5c5cc", prog:"#f0a500", done:"#2bb24c", cancel:"#8a8a8e"};
+
+/* =========================================================================
+   Column widths
+   ========================================================================= */
+const DEFW={no:46, project:230, activities:182, wi:200, st:122, addcp:108, next:190, due:132, note:170};
+function colW(key){
+  if(DATA && DATA.colWidths && DATA.colWidths[key]!=null) return DATA.colWidths[key];
+  if(key.indexOf("wi:")===0) return DEFW.wi;
+  if(key.indexOf("st:")===0) return DEFW.st;
+  if(key.indexOf("cc:")===0) return 40;
+  return DEFW[key]||120;
 }
 
 /* =========================================================================
    Data
    ========================================================================= */
-let DATA_KEY="pt_data_v3";  // fallback localStorage key
-
+let DATA=null, editKey=null;
+let _lastSaveJSON="";
 function uid(){return Math.random().toString(36).slice(2,9)}
 
 function seed(){
@@ -389,11 +357,9 @@ function seed(){
   });
   return {
     checkpoints:[{id:cp1,label:"As of 5 Jan 2026",collapsed:false},{id:cp2,label:"As of 20 Jan 2026",collapsed:false}],
-    activeCp:cp2,
-    colWidths:{},
+    activeCp:cp2, colWidths:{},
     projects:[{
-      id:uid(),
-      name:"Digital Catalogue",
+      id:uid(), name:"Digital Catalogue", hideProgress:false,
       desc:"Digital catalogue with advanced SEO for the ACC ONE platform.",
       activities:[
         mk("Kick-off","done","done","Kickoff complete","Kickoff complete"),
@@ -412,215 +378,49 @@ function seed(){
 }
 
 function normalizeData(d){
-  if(!d) return null;
+  if(!d || !d.checkpoints || !d.checkpoints.length) return null;
   if(!d.colWidths) d.colWidths={};
-  if(!d.checkpoints||!d.checkpoints.length) return null;
   if(!d.checkpoints.some(c=>c.id===d.activeCp)) d.activeCp=d.checkpoints[d.checkpoints.length-1].id;
   return d;
 }
 
-/* --- Firestore path --- */
-// Using async/await for cleaner Promise handling
 async function load(){
-  // Pick up saved config from setup banner if config placeholders still present
-  const savedCfg=localStorage.getItem("pt_fbcfg");
-  if(savedCfg && Object.values(firebaseConfig).some(v=>v.includes("YOUR_"))){ // Use firebaseConfig here
-    try{ Object.assign(firebaseConfig, JSON.parse(savedCfg)); }catch(e){} // Use firebaseConfig here
-  }
-  const ok = await initFirebase(); // Await the async initFirebase
-  if(!ok) return; // setup banner shown
-
-  // Initial read from Firestore
-  try {
-    const snap = await getDoc(DOCREF_FS); // Use getDoc with DOCREF_FS
-    DATA = normalizeData(snap.exists() ? snap.data() : null) || seed(); // snap.exists() and snap.data() for modular SDK
-    render();
-
-    // Real-time listener — fires whenever any user saves a change
-    // includeMetadataChanges lets us track online/offline status from Firestore metadata
-    onSnapshot(DOCREF_FS, {includeMetadataChanges:true}, snap=>{ // Use onSnapshot with DOCREF_FS
-      const badge=document.getElementById("connBadge");
-      const label=document.getElementById("connLabel");
-      if(badge&&label){
-        if(snap.metadata.fromCache){
-          badge.className="conn-badge offline"; label.textContent="Offline (cached)";
-        } else {
-          badge.className="No response
-
-</script>
-
-let DATA=null, editKey=null;
-let DOCREF=null;  // Firestore document reference, set after init
-let _lastSaveJSON="";
-
-function initFirebase(){
-  const missing=Object.values(FIREBASE_CONFIG).some(v=>v.startsWith("PASTE_"));
-  if(missing){ showSetupBanner(); return false; }
+  setConnBadge("connecting","Connecting…");
   try{
-    firebase.initializeApp(FIREBASE_CONFIG);
-    const db=firebase.firestore();
-    DOCREF=db.collection("project_tracker").doc("main");
-
-    // Enable offline persistence so the tracker keeps working without internet
-    db.enablePersistence({synchronizeTabs:true}).catch(err=>{
-      if(err.code==="failed-precondition") console.warn("Firestore persistence: multiple tabs open — only one tab gets persistence.");
-      else if(err.code==="unimplemented") console.warn("Firestore persistence not supported in this browser.");
-    });
-    return true;
-  }catch(e){ console.error("Firebase init error:",e); alert("Firebase init failed: "+e.message); return false; }
-}
-
-function showSetupBanner(){
-  const badge=document.getElementById("connBadge");
-  if(badge){badge.className="conn-badge offline";document.getElementById("connLabel").textContent="Not configured";}
-  // Pre-fill textarea with a template
-  const tpl=`{
-  "apiKey": "...",
-  "authDomain": "...",
-  "databaseURL": "https://YOUR-PROJECT-default-rtdb.firebaseio.com",
-  "projectId": "...",
-  "storageBucket": "...",
-  "messagingSenderId": "...",
-  "appId": "..."
-}`;
-  const bx=document.createElement("div");
-  bx.className="setup-banner";
-  bx.innerHTML=`<div class="setup-box">
-  <h2>🔧 Connect to Firebase</h2>
-  <p class="sub">This tracker needs a Firebase Realtime Database to share data across users. Takes ~5 minutes:</p>
-  <ol>
-    <li>Go to <b>console.firebase.google.com</b> → Add project</li>
-    <li>Build → <b>Realtime Database</b> → Create database (test mode)</li>
-    <li>Project Settings ⚙ → General → Your apps → <b>Config</b></li>
-    <li>Paste the config JSON below:</li>
-  </ol>
-  <textarea class="cfg" id="cfgInput" spellcheck="false">${tpl}</textarea>
-  <div class="row">
-    <button class="btn btn-primary" style="flex:1" id="cfgSave">Connect &amp; Save</button>
-    <button class="btn btn-light" id="cfgSkip">Use local only</button>
-  </div>
-  <p class="note">The config is saved in your browser. Anyone who opens the hosted URL with a configured file will share the same database automatically.</p>
-  </div>`;
-  document.body.appendChild(bx);
-  document.getElementById("cfgSave").onclick=()=>{
-    try{
-      const val=JSON.parse(document.getElementById("cfgInput").value.trim());
-      const required=["apiKey","authDomain","databaseURL","projectId","storageBucket","messagingSenderId","appId"];
-      const missing2=required.filter(k=>!val[k]);
-      if(missing2.length){ alert("Missing fields: "+missing2.join(", ")); return; }
-      localStorage.setItem("pt_fbcfg",JSON.stringify(val));
-      bx.remove();
-      location.reload();
-    }catch(e){ alert("Invalid JSON: "+e.message); }
-  };
-  document.getElementById("cfgSkip").onclick=()=>{ bx.remove(); loadLocal(); };
-}
-
-/* =========================================================================
-   Data
-   ========================================================================= */
-let DATA_KEY="pt_data_v3";  // fallback localStorage key
-
-function uid(){return Math.random().toString(36).slice(2,9)}
-
-function seed(){
-  const cp1="cp_a", cp2="cp_b";
-  const mk=(name,s1,s2,wi1,wi2,next,due,note)=>({
-    id:uid(), name, next:next||"", due:due||"", note:note||"",
-    cps:{[cp1]:{wi:wi1||"",st:s1},[cp2]:{wi:wi2||"",st:s2}}
-  });
-  return {
-    checkpoints:[{id:cp1,label:"As of 5 Jan 2026",collapsed:false},{id:cp2,label:"As of 20 Jan 2026",collapsed:false}],
-    activeCp:cp2,
-    colWidths:{},
-    projects:[{
-      id:uid(),
-      name:"Digital Catalogue",
-      desc:"Digital catalogue with advanced SEO for the ACC ONE platform.",
-      activities:[
-        mk("Kick-off","done","done","Kickoff complete","Kickoff complete"),
-        mk("Feasibility Study","done","done","Drafting requirement","Drafting requirement","","2026-01-27"),
-        mk("User Commitment","done","done","Make sure all users are committed to the project, including:\n1. Underwriting\n2. Service Department\n3. Marketing","Make sure all users are committed to the project, including:\n1. Underwriting\n2. Service Department\n3. Marketing","","2026-01-27"),
-        mk("BRD Drafting","done","done","Drafting requirement","Drafting requirement","","2026-01-27"),
-        mk("UI/UX Design","done","done","Lorem Ipsum Dolor sit Amet","Lorem Ipsum Dolor sit Amet","","2026-01-27"),
-        mk("Grooming","prog","done","","Grooming Done","","2026-01-27"),
-        mk("System Development","backlog","prog","","Development started on time","1. Make sure development stays on target\n2. Conduct weekly review",""),
-        mk("System Integration","backlog","prog","","","Prepare testing environment",""),
-        mk("User Acceptance Testing","cancel","cancel","","","",""),
-        mk("Implementation","backlog","backlog","","","","")
-      ]
-    }]
-  };
-}
-
-function normalizeData(d){
-  if(!d) return null;
-  if(!d.colWidths) d.colWidths={};
-  if(!d.checkpoints||!d.checkpoints.length) return null;
-  if(!d.checkpoints.some(c=>c.id===d.activeCp)) d.activeCp=d.checkpoints[d.checkpoints.length-1].id;
-  return d;
-}
-
-/* --- Firestore path --- */
-function load(){
-  // Pick up saved config from setup banner if config placeholders still present
-  const savedCfg=localStorage.getItem("pt_fbcfg");
-  if(savedCfg && Object.values(FIREBASE_CONFIG).some(v=>v.startsWith("PASTE_"))){
-    try{ Object.assign(FIREBASE_CONFIG, JSON.parse(savedCfg)); }catch(e){}
-  }
-  const ok=initFirebase();
-  if(!ok) return; // setup banner shown
-
-  // Initial read from Firestore
-  DOCREF.get().then(snap=>{
-    DATA = normalizeData(snap.exists ? snap.data() : null) || seed();
+    const snap = await getDoc(DOCREF);
+    DATA = normalizeData(snap.exists() ? snap.data() : null) || seed();
+    if(!snap.exists()) await save();   // first run — write the seed data
     render();
 
-    // Real-time listener — fires whenever any user saves a change
-    // includeMetadataChanges lets us track online/offline status from Firestore metadata
-    DOCREF.onSnapshot({includeMetadataChanges:true}, snap=>{
-      const badge=document.getElementById("connBadge");
-      const label=document.getElementById("connLabel");
-      if(badge&&label){
-        if(snap.metadata.fromCache){
-          badge.className="conn-badge offline"; label.textContent="Offline (cached)";
-        } else {
-          badge.className="conn-badge online"; label.textContent="Live (synced)";
-        }
-      }
-      const incoming=snap.data();
+    // Live listener — fires when any user saves a change
+    onSnapshot(DOCREF, {includeMetadataChanges:true}, snap=>{
+      setConnBadge(snap.metadata.fromCache ? "offline" : "online",
+                   snap.metadata.fromCache ? "Offline (cached)" : "Live (synced)");
+      const incoming = snap.data();
       if(!incoming) return;
-      const incomingJSON=JSON.stringify(incoming);
-      if(incomingJSON===_lastSaveJSON) return; // echo of our own write — skip
-      if(editKey!==null) return;               // user is mid-edit — skip
-      DATA=normalizeData(incoming)||DATA;
+      const json = JSON.stringify(incoming);
+      if(json === _lastSaveJSON) return;  // echo of our own write — ignore
+      if(editKey !== null) return;        // user is mid-edit — don't disrupt
+      DATA = normalizeData(incoming) || DATA;
       render();
     });
-  }).catch(e=>{
-    console.error("Firestore read failed:",e);
-    toast("DB read failed — using local fallback");
-    loadLocal();
-  });
+  }catch(e){
+    console.error("Firestore read failed:", e);
+    setConnBadge("offline","Error — local only");
+    try{ const raw=localStorage.getItem("pt_data_v3"); DATA=normalizeData(raw?JSON.parse(raw):null)||seed(); }
+    catch(_){ DATA=seed(); }
+    render();
+  }
 }
 
-function save(){
-  try{
-    const json=JSON.stringify(DATA);
-    _lastSaveJSON=json;
-    DOCREF.set(DATA); // Firestore .set() replaces the whole document
-  }catch(e){ console.error("Firestore save failed:",e); }
+async function save(){
+  const json = JSON.stringify(DATA);
+  _lastSaveJSON = json;
+  try{ await setDoc(DOCREF, DATA); }
+  catch(e){ console.error("Firestore save failed:", e); try{ localStorage.setItem("pt_data_v3", json); }catch(_){} }
 }
 
-/* --- Local-only fallback (no Firebase) --- */
-function loadLocal(){
-  try{ const raw=localStorage.getItem(DATA_KEY); DATA=normalizeData(raw?JSON.parse(raw):null)||seed(); }
-  catch(e){ DATA=seed(); }
-  const badge=document.getElementById("connBadge");
-  if(badge){badge.className="conn-badge offline";document.getElementById("connLabel").textContent="Local only";}
-  render();
-}
-function saveLocal(){ try{ localStorage.setItem(DATA_KEY, JSON.stringify(DATA)); }catch(e){} }
-function commit(){ editKey=null; if(DOCREF) save(); else saveLocal(); render(); }
+function commit(){ editKey=null; save(); render(); }
 
 /* =========================================================================
    Helpers
@@ -639,15 +439,14 @@ function el(tag,attrs,...kids){
 function icon(name,cls){ return el("span",{class:"ic "+(cls||""),html:ICONS[name]||""}); }
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function fmtDate(iso){ if(!iso)return "TBD"; const d=new Date(iso+"T00:00:00"); if(isNaN(d))return "TBD"; return d.getDate()+" "+MONTHS[d.getMonth()]+" "+d.getFullYear(); }
-function activeCpId(){ return DATA.activeCp; }
 
 function projStats(p){
-  const cp=activeCpId(); const c={backlog:0,prog:0,done:0,cancel:0};
+  const cp=DATA.activeCp; const c={backlog:0,prog:0,done:0,cancel:0};
   p.activities.forEach(a=>{ const st=(a.cps[cp]&&a.cps[cp].st)||"backlog"; if(c[st]!=null)c[st]++; });
   const total=p.activities.length;
-  const pct= total? Math.round(c.done/total*100):0;
-  return {c,total,pct};
+  return {c, total, pct: total? Math.round(c.done/total*100):0};
 }
+function anyExpandedPast(){ return DATA.checkpoints.some(c=>!c.collapsed && c.id!==DATA.activeCp); }
 
 /* =========================================================================
    Render
@@ -659,55 +458,54 @@ function render(){
   document.documentElement.style.setProperty("--w-project", colW("project")+"px");
   document.documentElement.style.setProperty("--w-activities", colW("activities")+"px");
 
-  /* ----- colgroup (table-layout fixed keeps header/body aligned) ----- */
+  /* total columns (for full-width gap rows between project cards) */
+  let cpCols=0; DATA.checkpoints.forEach(cp=>cpCols += cp.collapsed?1:2);
+  const totalCols = 3 + cpCols + 4;
+
+  /* ----- colgroup ----- */
   const cg=el("colgroup");
   const addCol=(key,w)=>{ const c=el("col"); c.setAttribute("data-key",key); c.style.width=(w||colW(key))+"px"; cg.appendChild(c); };
   addCol("no"); addCol("project"); addCol("activities");
-  DATA.checkpoints.forEach(cp=>{
-    if(cp.collapsed){ addCol("cc:"+cp.id, 40); }
-    else { addCol("wi:"+cp.id); addCol("st:"+cp.id); }
-  });
+  DATA.checkpoints.forEach(cp=>{ if(cp.collapsed){ addCol("cc:"+cp.id,40); } else { addCol("wi:"+cp.id); addCol("st:"+cp.id); } });
   addCol("addcp"); addCol("next"); addCol("due"); addCol("note");
   grid.appendChild(cg);
 
-  /* ----- thead (always 2 physical rows, fixed heights) ----- */
+  /* ----- thead ----- */
   const thead=el("thead");
   const grp=el("tr",{class:"grp"});
-  const resizer=(key)=> el("div",{class:"rz",onmousedown:(e)=>startResize(e,key)});
-  const rzHost=(node,key)=>{ const h=el("span",{class:"rzhost"}); h.appendChild(node); h.appendChild(resizer(key)); return h; };
+  const thRz=(label,cls,key,extra)=>{ const th=el("th",Object.assign({class:cls},extra||{}), label);
+    th.appendChild(el("div",{class:"rz", onmousedown:(e)=>startResize(e,key)})); return th; };
 
   grp.appendChild(el("th",{class:"grp c-no rspan", rowspan:2}, "No."));
-  grp.appendChild(el("th",{class:"grp c-project rspan", rowspan:2}, rzHost(document.createTextNode("Project"),"project")));
-  grp.appendChild(el("th",{class:"grp c-activities rspan", rowspan:2}, rzHost(document.createTextNode("Activities"),"activities")));
+  grp.appendChild(thRz("Project","grp c-project rspan","project",{rowspan:2}));
+  grp.appendChild(thRz("Activities","grp c-activities rspan","activities",{rowspan:2}));
 
   DATA.checkpoints.forEach(cp=>{
     if(cp.collapsed){
-      const inner=el("div",{class:"cpc-inner"},
-        icon("chevRight","cpc-chev"),
-        el("span",{class:"cpc-lbl"}, cp.label.replace(/^As of\s*/i,""))
-      );
+      const inner=el("div",{class:"cpc-inner"}, icon("chevRight","cpc-chev"),
+        el("span",{class:"cpc-lbl"}, cp.label.replace(/^As of\s*/i,"")));
       grp.appendChild(el("th",{class:"grp cp-collapsed-h", rowspan:2, title:"Click to expand", onclick:()=>{cp.collapsed=false;commit();}}, inner));
     } else {
       const isActive=cp.id===DATA.activeCp;
-      const lbl=el("span",{class:"cplabel"}, cp.label);
-      const menuBtn=el("span",{class:"cpmenu-btn",html:ICONS.chevDown, onclick:(e)=>checkpointMenu(e,cp)});
-      const head=el("th",{class:"grp cpgrp", colspan:2},
-        isActive? el("span",{class:"cpdot"}):null, lbl, menuBtn);
+      const head=el("th",{class:"grp cpgrp"+(isActive?" cp-active-h":""), colspan:2},
+        el("span",{class:"cplabel"}, cp.label),
+        el("span",{class:"cpmenu-btn",html:ICONS.chevDown, onclick:(e)=>checkpointMenu(e,cp)}));
       grp.appendChild(head);
     }
   });
 
   grp.appendChild(el("th",{class:"grp rspan", rowspan:2}, "Add Checkpoint"));
-  grp.appendChild(el("th",{class:"grp rspan", rowspan:2}, rzHost(document.createTextNode("Next Action"),"next")));
-  grp.appendChild(el("th",{class:"grp rspan", rowspan:2}, rzHost(document.createTextNode("Due Date"),"due")));
-  grp.appendChild(el("th",{class:"grp rspan", rowspan:2}, rzHost(document.createTextNode("Note/Remarks"),"note")));
+  grp.appendChild(thRz("Next Action","grp rspan","next",{rowspan:2}));
+  grp.appendChild(thRz("Due Date","grp rspan","due",{rowspan:2}));
+  grp.appendChild(thRz("Note/Remarks","grp rspan","note",{rowspan:2}));
   thead.appendChild(grp);
 
   const sub=el("tr",{class:"sub"});
   DATA.checkpoints.forEach(cp=>{
-    if(cp.collapsed) return; /* its header is rowspan=2, contributes nothing here */
-    sub.appendChild(el("th",{class:"sub"}, rzHost(document.createTextNode("Work Item"),"wi:"+cp.id)));
-    sub.appendChild(el("th",{class:"sub"}, rzHost(document.createTextNode("Status"),"st:"+cp.id)));
+    if(cp.collapsed) return;
+    const act=cp.id===DATA.activeCp?" cp-active-sub":"";
+    sub.appendChild(thRz("Work Item","sub"+act,"wi:"+cp.id));
+    sub.appendChild(thRz("Status","sub"+act,"st:"+cp.id));
   });
   thead.appendChild(sub);
   grid.appendChild(thead);
@@ -715,125 +513,110 @@ function render(){
   /* ----- tbody ----- */
   const tbody=el("tbody");
   DATA.projects.forEach((p,pi)=>{
-    const span=p.activities.length+1; /* +1 for the add-activity row (bug 3) */
+    /* gap row before each project card */
+    tbody.appendChild(el("tr",{class:"gaprow"}, el("td",{class:"gap", colspan:totalCols})));
+
+    const span=p.activities.length+1; /* +1 add-activity row */
     p.activities.forEach((a,ai)=>{
+      const first=ai===0;
       const tr=el("tr");
-      if(ai===0){
-        tr.appendChild(el("td",{class:"c-no", rowspan:span}, String(pi+1)));
-        tr.appendChild(projectCell(p,pi,span));
+      if(first){
+        tr.appendChild(el("td",{class:"c-no blk-left blk-tl blk-bl rtop", rowspan:span}, String(pi+1)));
+        tr.appendChild(projectCell(p,span));
       }
-      tr.appendChild(activityCell(p,a));
+      const actTd=activityCell(p,a); if(first) actTd.classList.add("rtop"); tr.appendChild(actTd);
+
       DATA.checkpoints.forEach(cp=>{
         const d=a.cps[cp.id]||(a.cps[cp.id]={wi:"",st:"backlog"});
         if(cp.collapsed){
-          const meta=STMETA[d.st||"backlog"];
-          tr.appendChild(el("td",{class:"cp-collapsed-c", title:meta.label+" — click to expand", onclick:()=>{cp.collapsed=false;commit();}},
-            el("span",{class:"cpc-dot", style:"background:"+meta.dot})));
+          const td=el("td",{class:"cp-collapsed-c", title:STMETA[d.st||"backlog"].label+" — click to expand", onclick:()=>{cp.collapsed=false;commit();}},
+            el("span",{class:"cpc-dot", style:"background:"+SUMDOT[d.st||"backlog"]}));
+          if(first) td.classList.add("rtop"); tr.appendChild(td);
         } else {
-          tr.appendChild(workItemCell(p,a,cp));
-          tr.appendChild(statusCell(a,cp));
+          const isActive=cp.id===DATA.activeCp;
+          const wiTd=workItemCell(p,a,cp); const stTd=statusCell(a,cp);
+          if(first){ wiTd.classList.add("rtop"); stTd.classList.add("rtop"); }
+          if(isActive){ wiTd.classList.add("cp-active-cell"); stTd.classList.add("cp-active-cell"); }
+          tr.appendChild(wiTd); tr.appendChild(stTd);
         }
       });
-      /* add-checkpoint big + button, centered, once per project */
-      if(ai===0){
-        tr.appendChild(el("td",{class:"c-addcp", rowspan:span},
+
+      if(first){
+        const ac=el("td",{class:"c-addcp rtop", rowspan:span},
           el("div",{class:"addcp-btn", onclick:()=>addCheckpoint()},
-            el("div",{class:"circ",html:ICONS.plus}),
-            el("div",{class:"cap"},"Add Checkpoint"))));
+            el("div",{class:"circ",html:ICONS.plus}), el("div",{class:"cap"},"Add Checkpoint")));
+        tr.appendChild(ac);
       }
-      tr.appendChild(textCell(p,a,"next","nx:"+p.id+":"+a.id,"Add next action..."));
-      tr.appendChild(dueCell(p,a));
-      tr.appendChild(textCell(p,a,"note","nt:"+p.id+":"+a.id,"Add note..."));
+
+      const nx=textCell(a,"next","nx:"+p.id+":"+a.id,"Add next action..."); if(first) nx.classList.add("rtop"); tr.appendChild(nx);
+      const du=dueCell(a,p.id); if(first) du.classList.add("rtop"); tr.appendChild(du);
+      const nt=textCell(a,"note","nt:"+p.id+":"+a.id,"Add note..."); if(first){nt.classList.add("rtop");nt.classList.add("blk-tr");} tr.appendChild(nt);
       tbody.appendChild(tr);
     });
 
-    /* add-activity row: only the Activities cell carries the button; rest blank (bug 3) */
+    /* add-activity row: button under Activities, blanks elsewhere */
     const ar=el("tr",{class:"addrow"});
     ar.appendChild(el("td",{class:"c-activities addact"},
       el("div",{class:"addact-btn", onclick:()=>addActivity(p)}, icon("plus"), "Add Activity")));
-    DATA.checkpoints.forEach(cp=>{
-      if(cp.collapsed){ ar.appendChild(el("td",{class:"blank-cell"})); }
-      else { ar.appendChild(el("td",{class:"blank-cell"})); ar.appendChild(el("td",{class:"blank-cell"})); }
-    });
-    ar.appendChild(el("td",{class:"blank-cell"})); /* next */
-    ar.appendChild(el("td",{class:"blank-cell"})); /* due */
-    ar.appendChild(el("td",{class:"blank-cell"})); /* note */
+    DATA.checkpoints.forEach(cp=>{ ar.appendChild(el("td")); if(!cp.collapsed) ar.appendChild(el("td")); });
+    ar.appendChild(el("td")); /* next */
+    ar.appendChild(el("td")); /* due */
+    ar.appendChild(el("td",{class:"blk-br"})); /* note */
     tbody.appendChild(ar);
   });
   grid.appendChild(tbody);
 
-  /* history toggle label */
-  const anyCollapsed=DATA.checkpoints.some(c=>c.collapsed);
-  const hb=document.getElementById("historyBtn");
-  hb.querySelector(".lbl").textContent= anyCollapsed? "Show history":"Collapse history";
-  hb.querySelector(".ic").innerHTML= anyCollapsed? ICONS.eye:ICONS.eyeOff;
-
   document.querySelectorAll("[data-ic]").forEach(s=>{ if(s.children.length===0) s.innerHTML=ICONS[s.getAttribute("data-ic")]||""; });
-
-  if(editKey){ const f=document.getElementById("editfield"); if(f){ f.focus(); if(f.setSelectionRange){const v=f.value;f.setSelectionRange(v.length,v.length);} } }
+  if(editKey){ const f=document.getElementById("editfield"); if(f){
+    f.focus();
+    if(f.setSelectionRange){const v=f.value;f.setSelectionRange(v.length,v.length);}
+    if(f.tagName==="TEXTAREA"){
+      const grow=()=>{ f.style.height="auto"; f.style.height=Math.max(f.scrollHeight,30)+"px"; };
+      f.addEventListener("input",grow); grow(); /* default height fits text (bug 5) */
+    }
+  } }
 }
 
 /* ---------- project cell ---------- */
-function projectCell(p,pi,span){
-  const td=el("td",{class:"c-project", rowspan:span});
-  const menuBtn=el("span",{class:"pj-menu-btn",html:ICONS.dots, onclick:(e)=>projectMenu(e,p)});
+function projectCell(p,span){
+  const td=el("td",{class:"c-project rtop", rowspan:span});
+  td.appendChild(el("span",{class:"pj-menu-btn",html:ICONS.dots, onclick:(e)=>projectMenu(e,p)}));
 
-  let nameNode;
   if(editKey==="pn:"+p.id){
-    nameNode=el("textarea",{class:"cell-edit", id:"editfield", rows:1,
+    const ta=el("textarea",{class:"cell-edit", id:"editfield", rows:1,
       onblur:(e)=>{p.name=e.target.value.trim();commit();},
-      onkeydown:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.target.blur();}}});
-    nameNode.value=p.name;
-  } else {
-    nameNode=el("div",{class:"pj-name", onclick:()=>{editKey="pn:"+p.id;render();}}, p.name||"Untitled Project");
-  }
+      onkeydown:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.target.blur();}}}); ta.value=p.name; td.appendChild(ta);
+  } else { td.appendChild(el("div",{class:"pj-name", onclick:()=>{editKey="pn:"+p.id;render();}}, p.name||"Untitled Project")); }
 
-  let descNode;
   if(editKey==="pd:"+p.id){
-    descNode=el("textarea",{class:"cell-edit", id:"editfield", rows:2,
+    const ta=el("textarea",{class:"cell-edit", id:"editfield", rows:2,
       onblur:(e)=>{p.desc=e.target.value.trim();commit();},
-      onkeydown:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.target.blur();}}});
-    descNode.value=p.desc;
-  } else {
-    descNode=el("div",{class:"pj-desc", onclick:()=>{editKey="pd:"+p.id;render();}}, p.desc||"Add description...");
+      onkeydown:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.target.blur();}}}); ta.value=p.desc; td.appendChild(ta);
+  } else { td.appendChild(el("div",{class:"pj-desc", onclick:()=>{editKey="pd:"+p.id;render();}}, p.desc||"Add description...")); }
+
+  if(!p.hideProgress){
+    const s=projStats(p);
+    td.appendChild(el("div",{class:"pj-bar-wrap"},
+      el("div",{class:"pj-bar"}, el("i",{style:"width:"+s.pct+"%"})), el("span",{class:"pj-pct"}, s.pct+"%")));
+    const sumRow=(st)=> el("div",{class:"row"},
+      el("span",{class:"dot", style:"background:"+SUMDOT[st]}), el("span",{class:"nm"}, STMETA[st].label), el("span",{class:"ct"}, String(s.c[st])));
+    td.appendChild(el("div",{class:"pj-sum"}, sumRow("backlog"), sumRow("prog"), sumRow("done"), sumRow("cancel"),
+      el("div",{class:"pj-total"}, el("b",null,"Total"), el("span",null, el("b",null,String(s.total)), el("span",{class:"muted"},"Items")))));
   }
-
-  const s=projStats(p);
-  const bar=el("div",{class:"pj-bar-wrap"},
-    el("div",{class:"pj-bar"}, el("i",{style:"width:"+s.pct+"%"})),
-    el("span",{class:"pj-pct"}, s.pct+"%"));
-
-  const sumRow=(st)=>{const m=STMETA[st]; return el("div",{class:"row"},
-    el("span",{class:"dot", style:"background:"+m.dot}),
-    el("span",{class:"nm"}, m.label),
-    el("span",{class:"ct"}, String(s.c[st])));};
-  const sum=el("div",{class:"pj-sum"},
-    sumRow("backlog"), sumRow("prog"), sumRow("done"), sumRow("cancel"),
-    el("div",{class:"pj-total"}, el("b",null,"Total"), el("span",null, el("b",null,String(s.total)), el("span",{class:"muted"},"Items"))));
-
-  td.appendChild(menuBtn);
-  td.appendChild(nameNode);
-  td.appendChild(descNode);
-  td.appendChild(bar);
-  td.appendChild(sum);
   return td;
 }
 
 /* ---------- activity name cell ---------- */
 function activityCell(p,a){
   const td=el("td",{class:"c-activities"});
-  let nameNode;
   if(editKey==="an:"+p.id+":"+a.id){
-    nameNode=el("textarea",{class:"cell-edit", id:"editfield", rows:1,
+    const ta=el("textarea",{class:"cell-edit", id:"editfield", rows:1,
       onblur:(e)=>{a.name=e.target.value.trim();commit();},
-      onkeydown:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.target.blur();}}});
-    nameNode.value=a.name;
-    td.appendChild(nameNode);
+      onkeydown:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.target.blur();}}}); ta.value=a.name; td.appendChild(ta);
   } else {
-    const row=el("div",{class:"act-row"},
+    td.appendChild(el("div",{class:"act-row"},
       el("div",{class:"act-name", onclick:()=>{editKey="an:"+p.id+":"+a.id;render();}}, a.name||"Activity"),
-      el("span",{class:"act-del",html:ICONS.trash, title:"Delete activity", onclick:()=>deleteActivity(p,a)}));
-    td.appendChild(row);
+      el("span",{class:"act-del",html:ICONS.trash, title:"Delete activity", onclick:()=>deleteActivity(p,a)})));
   }
   return td;
 }
@@ -844,89 +627,66 @@ function workItemCell(p,a,cp){
   if(editKey===key){
     const ta=el("textarea",{class:"cell-edit", id:"editfield", rows:2,
       onblur:(e)=>{d.wi=e.target.value;commit();},
-      onkeydown:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.target.blur();}}});
-    ta.value=d.wi||"";
+      onkeydown:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.target.blur();}}}); ta.value=d.wi||"";
     return el("td",{class:"c-wi"}, ta);
   }
-  const div=el("div",{class:"cell-text"+(d.wi?"":" empty"), "data-ph":"Input Work Item here...",
-    onclick:()=>{editKey=key;render();}}, d.wi||"");
-  return el("td",{class:"c-wi"}, div);
+  return el("td",{class:"c-wi"}, el("div",{class:"cell-text"+(d.wi?"":" empty"), "data-ph":"Input Work Item here...", onclick:()=>{editKey=key;render();}}, d.wi||""));
 }
 
 /* ---------- status pill ---------- */
 function statusCell(a,cp){
   const d=a.cps[cp.id]; const st=d.st||"backlog"; const m=STMETA[st];
-  const pill=el("span",{class:"pill "+m.cls, onclick:()=>{
-    const idx=STATUS.indexOf(st); d.st=STATUS[(idx+1)%STATUS.length]; commit();
-  }}, m.label);
-  return el("td",{class:"c-st"}, pill);
+  return el("td",{class:"c-st"}, el("span",{class:"pill "+m.cls, onclick:()=>{ const i=STATUS.indexOf(st); d.st=STATUS[(i+1)%STATUS.length]; commit(); }}, m.label));
 }
 
-/* ---------- generic text cell (next / note) ---------- */
-function textCell(p,a,field,key,ph){
+/* ---------- generic text cell ---------- */
+function textCell(a,field,key,ph){
   if(editKey===key){
     const ta=el("textarea",{class:"cell-edit", id:"editfield", rows:2,
       onblur:(e)=>{a[field]=e.target.value;commit();},
-      onkeydown:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.target.blur();}}});
-    ta.value=a[field]||"";
+      onkeydown:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.target.blur();}}}); ta.value=a[field]||"";
     return el("td",null, ta);
   }
-  const div=el("div",{class:"cell-text"+(a[field]?"":" empty"), "data-ph":ph, onclick:()=>{editKey=key;render();}}, a[field]||"");
-  return el("td",null, div);
+  return el("td",null, el("div",{class:"cell-text"+(a[field]?"":" empty"), "data-ph":ph, onclick:()=>{editKey=key;render();}}, a[field]||""));
 }
 
 /* ---------- due date cell ---------- */
-function dueCell(p,a){
-  const key="due:"+p.id+":"+a.id;
+function dueCell(a,pid){
+  const key="due:"+pid+":"+a.id;
   if(editKey===key){
-    const inp=el("input",{type:"date", id:"editfield", value:a.due||"",
-      onchange:(e)=>{a.due=e.target.value;commit();}});
+    const inp=el("input",{type:"date", id:"editfield", value:a.due||"", onchange:(e)=>{a.due=e.target.value;commit();}});
     const tbd=el("button",{class:"mini-btn", onmousedown:(e)=>{e.preventDefault();a.due="";commit();}},"TBD");
     return el("td",null, el("div",{class:"date-edit"}, inp, tbd));
   }
-  const div=el("div",{class:"due-text"+(a.due?"":" tbd"), onclick:()=>{editKey=key;render();}},
-    icon("cal"), fmtDate(a.due));
-  return el("td",null, div);
+  return el("td",null, el("div",{class:"due-text"+(a.due?"":" tbd"), onclick:()=>{editKey=key;render();}}, icon("cal"), fmtDate(a.due)));
 }
 
 /* =========================================================================
    Actions
    ========================================================================= */
-function addProject(){
-  DATA.projects.push({id:uid(), name:"New Project", desc:"", activities:[ newActivity() ]});
-  commit(); toast("Project added");
-}
-function newActivity(){
-  const cps={}; DATA.checkpoints.forEach(c=>cps[c.id]={wi:"",st:"backlog"});
-  return {id:uid(), name:"New Activity", next:"", due:"", note:"", cps};
-}
+function addProject(){ DATA.projects.push({id:uid(), name:"New Project", desc:"", hideProgress:false, activities:[newActivity()]}); commit(); toast("Project added"); }
+function newActivity(){ const cps={}; DATA.checkpoints.forEach(c=>cps[c.id]={wi:"",st:"backlog"}); return {id:uid(), name:"New Activity", next:"", due:"", note:"", cps}; }
 function addActivity(p){ p.activities.push(newActivity()); commit(); }
 function deleteActivity(p,a){
   if(p.activities.length<=1){ toast("Keep at least one activity."); return; }
   showDialog({title:"Delete Activity?", message:"\u201C"+(a.name||"Activity")+"\u201D will be removed.",
-    buttons:[{label:"Cancel",style:"cancel"},{label:"Delete",style:"danger",onClick:()=>{
-      p.activities=p.activities.filter(x=>x.id!==a.id); commit();
-    }}]});
+    buttons:[{label:"Cancel",style:"cancel"},{label:"Delete",style:"danger",onClick:()=>{ p.activities=p.activities.filter(x=>x.id!==a.id); commit(); }}]});
 }
 function addCheckpoint(){
-  const prev=DATA.checkpoints[DATA.checkpoints.length-1];
   showDialog({title:"Add Checkpoint", message:"Start from the latest checkpoint or begin with a blank one?",
-    buttons:[
-      {label:"Start blank", style:"bold", onClick:()=>doAddCheckpoint(false)},
-      {label:"Import previous", style:"bold", onClick:()=>doAddCheckpoint(true)}
-    ], vertical:true, cancel:true});
+    buttons:[{label:"Start blank", style:"bold", onClick:()=>doAddCheckpoint(false)},{label:"Import previous", style:"bold", onClick:()=>doAddCheckpoint(true)}], vertical:true, cancel:true});
 }
 function doAddCheckpoint(importPrev){
   const prev=DATA.checkpoints[DATA.checkpoints.length-1];
-  const d=new Date(); const lbl="As of "+d.getDate()+" "+MONTHS[d.getMonth()]+" "+d.getFullYear();
-  const cp={id:uid(), label:lbl, collapsed:false};
+  const d=new Date(); const cp={id:uid(), label:"As of "+d.getDate()+" "+MONTHS[d.getMonth()]+" "+d.getFullYear(), collapsed:false};
   DATA.checkpoints.push(cp);
-  DATA.projects.forEach(p=>p.activities.forEach(a=>{
-    const src=prev?a.cps[prev.id]:null;
-    a.cps[cp.id]= importPrev&&src ? {wi:src.wi||"",st:src.st||"backlog"} : {wi:"",st:"backlog"};
-  }));
-  DATA.activeCp=cp.id;
-  commit(); toast("Checkpoint added");
+  DATA.projects.forEach(p=>p.activities.forEach(a=>{ const src=prev?a.cps[prev.id]:null; a.cps[cp.id]= importPrev&&src?{wi:src.wi||"",st:src.st||"backlog"}:{wi:"",st:"backlog"}; }));
+  DATA.activeCp=cp.id; commit(); toast("Checkpoint added");
+}
+function toggleHistory(){
+  if(anyExpandedPast()){ DATA.checkpoints.forEach(c=>{ if(c.id!==DATA.activeCp) c.collapsed=true; }); }
+  else { DATA.checkpoints.forEach(c=>c.collapsed=false); }
+  commit();
 }
 
 /* ---------- menus ---------- */
@@ -937,8 +697,7 @@ function openMenu(x,y,items){
   const m=el("div",{class:"menu"});
   items.forEach(it=>{
     if(it.sep){ m.appendChild(el("div",{class:"msep"})); return; }
-    const row=el("div",{class:"mi"+(it.danger?" danger":""), onclick:()=>{closeMenus(); it.onClick&&it.onClick();}},
-      icon(it.icon), el("span",null,it.label));
+    const row=el("div",{class:"mi"+(it.danger?" danger":""), onclick:()=>{closeMenus(); it.onClick&&it.onClick();}}, icon(it.icon), el("span",null,it.label));
     if(it.check) row.appendChild(el("span",{class:"chk",html:ICONS.check}));
     m.appendChild(row);
   });
@@ -953,14 +712,13 @@ function checkpointMenu(e,cp){
   const isActive=cp.id===DATA.activeCp;
   const items=[
     {label:"Make Active", icon:"play", check:isActive, onClick:()=>{DATA.activeCp=cp.id;cp.collapsed=false;commit();}},
-    {label:"Rename Checkpoint", icon:"pencil", onClick:()=>{editKey="cpl:"+cp.id;render();renameCheckpointPrompt(cp);}},
+    {label:"Rename Checkpoint", icon:"pencil", onClick:()=>renameCheckpointPrompt(cp)},
   ];
   if(!isActive) items.push({label:"Collapse Checkpoint", icon:"eyeOff", onClick:()=>{cp.collapsed=true;commit();}});
   items.push({sep:true});
   items.push({label:"Delete Checkpoint", icon:"trash", danger:true, onClick:()=>{
     if(DATA.checkpoints.length<=1){ toast("Keep at least one checkpoint."); return; }
-    showDialog({title:"Delete Checkpoint?",
-      message:"\u201C"+cp.label+"\u201D and its work items and statuses across all projects will be removed.",
+    showDialog({title:"Delete Checkpoint?", message:"\u201C"+cp.label+"\u201D and its work items and statuses across all projects will be removed.",
       buttons:[{label:"Cancel",style:"cancel"},{label:"Delete",style:"danger",onClick:()=>{
         DATA.checkpoints=DATA.checkpoints.filter(c=>c.id!==cp.id);
         DATA.projects.forEach(p=>p.activities.forEach(a=>{delete a.cps[cp.id];}));
@@ -973,26 +731,20 @@ function checkpointMenu(e,cp){
 }
 function renameCheckpointPrompt(cp){
   closeMenus();
-  setTimeout(()=>{
-    const val=window.prompt("Rename checkpoint:", cp.label);
-    if(val!=null){ cp.label=val.trim()||cp.label; }
-    commit();
-  },10);
+  setTimeout(()=>{ const val=window.prompt("Rename checkpoint:", cp.label); if(val!=null){ cp.label=val.trim()||cp.label; } commit(); },10);
 }
 function projectMenu(e,p){
   e.stopPropagation();
+  const collapsed=anyExpandedPast();
   const r=e.target.getBoundingClientRect();
-  openMenu(r.left-150, r.bottom+4, [
-    {label:"Rename Project", icon:"pencil", onClick:()=>{editKey="pn:"+p.id;render();}},
-    {label:"Edit Description", icon:"pencil", onClick:()=>{editKey="pd:"+p.id;render();}},
-    {label:"Add Activity", icon:"plus", onClick:()=>addActivity(p)},
+  openMenu(r.left-160, r.bottom+4, [
+    {label: p.hideProgress?"Show Progress":"Hide Progress", icon: p.hideProgress?"eye":"eyeOff", onClick:()=>{ p.hideProgress=!p.hideProgress; commit(); }},
+    {label: collapsed?"Collapse History":"Show History", icon:"layers", onClick:()=>toggleHistory()},
     {sep:true},
     {label:"Delete Project", icon:"trash", danger:true, onClick:()=>{
       if(DATA.projects.length<=1){ toast("Keep at least one project."); return; }
       showDialog({title:"Delete Project?", message:"\u201C"+(p.name||"Untitled Project")+"\u201D will be permanently deleted.",
-        buttons:[{label:"Cancel",style:"cancel"},{label:"Delete",style:"danger",onClick:()=>{
-          DATA.projects=DATA.projects.filter(x=>x.id!==p.id); commit();
-        }}]});
+        buttons:[{label:"Cancel",style:"cancel"},{label:"Delete",style:"danger",onClick:()=>{ DATA.projects=DATA.projects.filter(x=>x.id!==p.id); commit(); }}]});
     }}
   ]);
 }
@@ -1005,21 +757,16 @@ function showDialog({title,message,buttons,vertical,cancel}){
   dg.appendChild(el("div",{class:"body"}, el("h3",null,title), el("p",null,message)));
   const acts=el("div",{class:"acts"});
   if(vertical) acts.style.flexDirection="column";
-  buttons.forEach(b=>{
-    acts.appendChild(el("button",{class:(b.style==="danger"?"danger":"")+(b.style==="bold"?" bold":""),
-      onclick:()=>{ ov.remove(); b.onClick&&b.onClick(); }}, b.label));
-  });
+  buttons.forEach(b=>acts.appendChild(el("button",{class:(b.style==="danger"?"danger":"")+(b.style==="bold"?" bold":""), onclick:()=>{ ov.remove(); b.onClick&&b.onClick(); }}, b.label)));
   if(cancel) acts.appendChild(el("button",{onclick:()=>ov.remove()},"Cancel"));
-  dg.appendChild(acts);
-  ov.appendChild(dg);
+  dg.appendChild(acts); ov.appendChild(dg);
   ov.addEventListener("mousedown",(e)=>{ if(e.target===ov) ov.remove(); });
   document.body.appendChild(ov);
 }
 
 /* ---------- toast ---------- */
 let toastTimer=null;
-function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
-  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove("show"),1900); }
+function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove("show"),1900); }
 
 /* =========================================================================
    Column resizing (drives <col> widths => header + body stay aligned)
@@ -1048,73 +795,155 @@ function endResize(){
 }
 
 /* =========================================================================
-   Excel export — styled HTML table (.xls) so colors + formatting survive (bug 7)
+   Excel export — genuine .xlsx (zip + OOXML) with fills/fonts/borders (bug 8)
+   No "format and extension don't match" warning, colours preserved.
    ========================================================================= */
-function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br/>"); }
+function stylesXml(){
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+  +'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+  +'<fonts count="5">'
+   +'<font><sz val="11"/><name val="Calibri"/></font>'
+   +'<font><b/><sz val="11"/><name val="Calibri"/></font>'
+   +'<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'
+   +'<font><sz val="11"/><color rgb="FF6B6B70"/><name val="Calibri"/></font>'
+   +'<font><b/><sz val="11"/><color rgb="FF5E5CE6"/><name val="Calibri"/></font>'
+  +'</fonts>'
+  +'<fills count="7">'
+   +'<fill><patternFill patternType="none"/></fill>'
+   +'<fill><patternFill patternType="gray125"/></fill>'
+   +'<fill><patternFill patternType="solid"><fgColor rgb="FFEFEFF4"/></patternFill></fill>'
+   +'<fill><patternFill patternType="solid"><fgColor rgb="FFEEEFFF"/></patternFill></fill>'
+   +'<fill><patternFill patternType="solid"><fgColor rgb="FF2BB24C"/></patternFill></fill>'
+   +'<fill><patternFill patternType="solid"><fgColor rgb="FFF0A500"/></patternFill></fill>'
+   +'<fill><patternFill patternType="solid"><fgColor rgb="FF8A8A8E"/></patternFill></fill>'
+  +'</fills>'
+  +'<borders count="2">'
+   +'<border><left/><right/><top/><bottom/><diagonal/></border>'
+   +'<border><left style="thin"><color rgb="FFC9C9CF"/></left><right style="thin"><color rgb="FFC9C9CF"/></right><top style="thin"><color rgb="FFC9C9CF"/></top><bottom style="thin"><color rgb="FFC9C9CF"/></bottom><diagonal/></border>'
+  +'</borders>'
+  +'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+  +'<cellXfs count="14">'
+   +'<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+   +'<xf borderId="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>'
+   +'<xf fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+   +'<xf fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>'
+   +'<xf fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+   +'<xf fontId="4" fillId="3" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+   +'<xf fontId="0" fillId="0" borderId="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>'
+   +'<xf fontId="1" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>'
+   +'<xf fontId="3" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>'
+   +'<xf fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+   +'<xf fontId="2" fillId="5" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+   +'<xf fontId="2" fillId="6" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+   +'<xf fontId="3" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+   +'<xf fontId="0" fillId="0" borderId="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>'
+  +'</cellXfs></styleSheet>';
+}
+
 function exportExcel(){
-  const HB="#EFEFF4", GRP="#E3ECF7", BORD="#C9C9CF";
-  let h='<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;border:1px solid '+BORD+'">';
-  /* group header row */
-  h+='<tr>';
-  h+='<th rowspan="2" bgcolor="'+HB+'" style="border:1px solid '+BORD+';font-weight:bold;text-align:center">No.</th>';
-  h+='<th rowspan="2" bgcolor="'+HB+'" style="border:1px solid '+BORD+';font-weight:bold">Project</th>';
-  h+='<th rowspan="2" bgcolor="'+HB+'" style="border:1px solid '+BORD+';font-weight:bold">Description</th>';
-  h+='<th rowspan="2" bgcolor="'+HB+'" style="border:1px solid '+BORD+';font-weight:bold">Activity</th>';
-  DATA.checkpoints.forEach(cp=>{
-    const active=cp.id===DATA.activeCp;
-    h+='<th colspan="2" bgcolor="'+GRP+'" style="border:1px solid '+BORD+';font-weight:bold;text-align:center;color:'+(active?'#185FA5':'#1c1c1e')+'">'+esc(cp.label)+(active?' \u25CF':'')+'</th>';
-  });
-  h+='<th rowspan="2" bgcolor="'+HB+'" style="border:1px solid '+BORD+';font-weight:bold">Next Action</th>';
-  h+='<th rowspan="2" bgcolor="'+HB+'" style="border:1px solid '+BORD+';font-weight:bold">Due Date</th>';
-  h+='<th rowspan="2" bgcolor="'+HB+'" style="border:1px solid '+BORD+';font-weight:bold">Note/Remarks</th>';
-  h+='</tr>';
-  /* sub header row */
-  h+='<tr>';
-  DATA.checkpoints.forEach(()=>{
-    h+='<th bgcolor="'+HB+'" style="border:1px solid '+BORD+';font-weight:bold">Work Item</th>';
-    h+='<th bgcolor="'+HB+'" style="border:1px solid '+BORD+';font-weight:bold;text-align:center">Status</th>';
-  });
-  h+='</tr>';
-  /* body */
+  if(typeof JSZip==="undefined"){ exportExcelFallback(); return; }
+  const cps=DATA.checkpoints;
+  const C={no:0,project:1,desc:2,act:3};
+  const cpWi=[],cpSt=[]; let idx=4;
+  cps.forEach(()=>{ cpWi.push(idx); cpSt.push(idx+1); idx+=2; });
+  const nextIdx=idx, dueIdx=idx+1, noteIdx=idx+2, totalCols=idx+3;
+
+  const W=new Array(totalCols).fill(14);
+  W[0]=5;W[1]=26;W[2]=30;W[3]=22;
+  cps.forEach((c,k)=>{ W[cpWi[k]]=26; W[cpSt[k]]=13; });
+  W[nextIdx]=28;W[dueIdx]=13;W[noteIdx]=24;
+
+  const L=(n)=>{let s="";n++;while(n>0){let m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26);}return s;};
+  const xe=(s)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const cT=(col,r,s,v)=>{ const ref=L(col)+r; if(v==null||v==="")return '<c r="'+ref+'" s="'+s+'"/>'; return '<c r="'+ref+'" s="'+s+'" t="inlineStr"><is><t xml:space="preserve">'+xe(v)+'</t></is></c>'; };
+  const cN=(col,r,s,v)=>'<c r="'+L(col)+r+'" s="'+s+'"><v>'+v+'</v></c>';
+
+  const merges=[]; let rows="";
+
+  let r1='<row r="1">';
+  r1+=cT(C.no,1,2,"No.")+cT(C.project,1,3,"Project")+cT(C.desc,1,3,"Description")+cT(C.act,1,3,"Activity");
+  cps.forEach((cp,k)=>{ const active=cp.id===DATA.activeCp;
+    r1+=cT(cpWi[k],1,active?5:4, cp.label+(active?"  \u25CF":""))+cT(cpSt[k],1,active?5:4,"");
+    merges.push(L(cpWi[k])+"1:"+L(cpSt[k])+"1"); });
+  r1+=cT(nextIdx,1,3,"Next Action")+cT(dueIdx,1,3,"Due Date")+cT(noteIdx,1,3,"Note/Remarks")+'</row>';
+  rows+=r1;
+  [C.no,C.project,C.desc,C.act,nextIdx,dueIdx,noteIdx].forEach(c=>merges.push(L(c)+"1:"+L(c)+"2"));
+
+  let r2='<row r="2">';
+  cps.forEach((cp,k)=>{ r2+=cT(cpWi[k],2,3,"Work Item")+cT(cpSt[k],2,4,"Status"); });
+  r2+='</row>'; rows+=r2;
+
+  const stXf={done:9,prog:10,cancel:11,backlog:12};
+  let r=3;
   DATA.projects.forEach((p,pi)=>{
-    const span=p.activities.length;
+    const span=p.activities.length, firstR=r;
     p.activities.forEach((a,ai)=>{
-      h+='<tr>';
-      if(ai===0){
-        h+='<td rowspan="'+span+'" valign="top" align="center" style="border:1px solid '+BORD+'">'+(pi+1)+'</td>';
-        h+='<td rowspan="'+span+'" valign="top" style="border:1px solid '+BORD+';font-weight:bold">'+esc(p.name)+'</td>';
-        h+='<td rowspan="'+span+'" valign="top" style="border:1px solid '+BORD+';color:#555">'+esc(p.desc)+'</td>';
-      }
-      h+='<td valign="top" style="border:1px solid '+BORD+';font-weight:bold">'+esc(a.name)+'</td>';
-      DATA.checkpoints.forEach(cp=>{
-        const d=a.cps[cp.id]||{}; const m=STMETA[d.st||"backlog"];
-        h+='<td valign="top" style="border:1px solid '+BORD+'">'+esc(d.wi)+'</td>';
-        h+='<td align="center" valign="middle" bgcolor="'+m.xls+'" style="border:1px solid '+BORD+';color:'+m.xt+';font-weight:bold">'+esc(m.label)+'</td>';
-      });
-      h+='<td valign="top" style="border:1px solid '+BORD+'">'+esc(a.next)+'</td>';
-      h+='<td valign="top" align="center" style="border:1px solid '+BORD+'">'+esc(fmtDate(a.due))+'</td>';
-      h+='<td valign="top" style="border:1px solid '+BORD+'">'+esc(a.note)+'</td>';
-      h+='</tr>';
+      let row='<row r="'+r+'">';
+      if(ai===0){ row+=cN(C.no,r,6,pi+1)+cT(C.project,r,7,p.name)+cT(C.desc,r,8,p.desc); }
+      row+=cT(C.act,r,7,a.name);
+      cps.forEach((cp,k)=>{ const d=a.cps[cp.id]||{}; const st=d.st||"backlog";
+        row+=cT(cpWi[k],r,1,d.wi||"")+cT(cpSt[k],r,stXf[st],STMETA[st].label); });
+      row+=cT(nextIdx,r,1,a.next||"")+cT(dueIdx,r,13,fmtDate(a.due))+cT(noteIdx,r,1,a.note||"")+'</row>';
+      rows+=row; r++;
+    });
+    if(span>1){ [C.no,C.project,C.desc].forEach(c=>merges.push(L(c)+firstR+":"+L(c)+(r-1))); }
+  });
+
+  let colsXml='<cols>';
+  for(let i=0;i<totalCols;i++) colsXml+='<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+W[i]+'" customWidth="1"/>';
+  colsXml+='</cols>';
+  const mergeXml='<mergeCells count="'+merges.length+'">'+merges.map(m=>'<mergeCell ref="'+m+'"/>').join("")+'</mergeCells>';
+  const sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetView/>'+colsXml+'<sheetData>'+rows+'</sheetData>'+mergeXml+'</worksheet>';
+
+  const ct='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>';
+  const rels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>';
+  const wb='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Tracker" sheetId="1" r:id="rId1"/></sheets></workbook>';
+  const wbr='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>';
+
+  const zip=new JSZip();
+  zip.file("[Content_Types].xml", ct);
+  zip.folder("_rels").file(".rels", rels);
+  const xl=zip.folder("xl");
+  xl.file("workbook.xml", wb);
+  xl.folder("_rels").file("workbook.xml.rels", wbr);
+  xl.file("styles.xml", stylesXml());
+  xl.folder("worksheets").file("sheet1.xml", sheet);
+  zip.generateAsync({type:"blob"}).then(blob=>{
+    const url=URL.createObjectURL(blob);
+    const a=el("a",{href:url, download:"project-tracker.xlsx"});
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast("Exported to Excel");
+  }).catch(()=>exportExcelFallback());
+}
+
+/* fallback only if JSZip can't load (offline) — styled HTML .xls */
+function exportExcelFallback(){
+  const esc=(s)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br/>");
+  const XF={done:"#2BB24C",prog:"#F0A500",cancel:"#8A8A8E",backlog:"#FFFFFF"};
+  const XT={done:"#fff",prog:"#fff",cancel:"#fff",backlog:"#6b6b70"};
+  const B="#C9C9CF";
+  let h='<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt">';
+  h+='<tr><th rowspan="2" bgcolor="#EFEFF4">No.</th><th rowspan="2" bgcolor="#EFEFF4">Project</th><th rowspan="2" bgcolor="#EFEFF4">Description</th><th rowspan="2" bgcolor="#EFEFF4">Activity</th>';
+  DATA.checkpoints.forEach(cp=>{ const a=cp.id===DATA.activeCp; h+='<th colspan="2" bgcolor="#EEEFFF" style="color:'+(a?"#5E5CE6":"#1c1c1e")+'">'+esc(cp.label)+(a?" \u25CF":"")+'</th>'; });
+  h+='<th rowspan="2" bgcolor="#EFEFF4">Next Action</th><th rowspan="2" bgcolor="#EFEFF4">Due Date</th><th rowspan="2" bgcolor="#EFEFF4">Note/Remarks</th></tr><tr>';
+  DATA.checkpoints.forEach(()=>{ h+='<th bgcolor="#EFEFF4">Work Item</th><th bgcolor="#EFEFF4">Status</th>'; });
+  h+='</tr>';
+  DATA.projects.forEach((p,pi)=>{ const span=p.activities.length;
+    p.activities.forEach((a,ai)=>{ h+='<tr>';
+      if(ai===0){ h+='<td rowspan="'+span+'" align="center" valign="top">'+(pi+1)+'</td><td rowspan="'+span+'" valign="top"><b>'+esc(p.name)+'</b></td><td rowspan="'+span+'" valign="top" style="color:#666">'+esc(p.desc)+'</td>'; }
+      h+='<td valign="top"><b>'+esc(a.name)+'</b></td>';
+      DATA.checkpoints.forEach(cp=>{ const d=a.cps[cp.id]||{}; const st=d.st||"backlog";
+        h+='<td valign="top">'+esc(d.wi)+'</td><td align="center" bgcolor="'+XF[st]+'" style="color:'+XT[st]+'"><b>'+esc(STMETA[st].label)+'</b></td>'; });
+      h+='<td valign="top">'+esc(a.next)+'</td><td align="center" valign="top">'+esc(fmtDate(a.due))+'</td><td valign="top">'+esc(a.note)+'</td></tr>';
     });
   });
   h+='</table>';
-
-  const html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"/><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Tracker</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body>'+h+'</body></html>';
+  const html='<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"/></head><body>'+h+'</body></html>';
   const blob=new Blob(["\ufeff"+html],{type:"application/vnd.ms-excel"});
   const url=URL.createObjectURL(blob);
   const a=el("a",{href:url, download:"project-tracker.xls"});
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-  toast("Exported to Excel (formatted)");
-}
-
-/* =========================================================================
-   History toggle
-   ========================================================================= */
-function toggleHistory(){
-  const anyExpandedPast=DATA.checkpoints.some(c=>!c.collapsed && c.id!==DATA.activeCp);
-  if(anyExpandedPast){ DATA.checkpoints.forEach(c=>{ if(c.id!==DATA.activeCp) c.collapsed=true; }); }
-  else { DATA.checkpoints.forEach(c=>c.collapsed=false); }
-  commit();
+  toast("Exported (offline fallback)");
 }
 
 /* =========================================================================
@@ -1123,8 +952,7 @@ function toggleHistory(){
 document.getElementById("addProjectBtn").addEventListener("click",addProject);
 document.getElementById("addProjectBtn2").addEventListener("click",addProject);
 document.getElementById("exportBtn").addEventListener("click",exportExcel);
-document.getElementById("historyBtn").addEventListener("click",toggleHistory);
-load(); /* render() is called inside load() after Firebase data arrives */
+load(); /* render() runs inside load() once Firestore data arrives */
 </script>
 </body>
 </html>

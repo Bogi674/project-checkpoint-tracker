@@ -275,7 +275,8 @@
    Firebase (Cloud Firestore) — modular SDK
    ========================================================================= */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot }
+// MODIFIED: Added collection, getDocs, deleteDoc, updateDoc, writeBatch
+import { getFirestore, doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, writeBatch }
   from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -289,8 +290,20 @@ const firebaseConfig = {
 
 const fbApp = initializeApp(firebaseConfig);
 const fdb   = getFirestore(fbApp);
-// ↓ Change these two names if your Firestore collection/document are named differently
-const DOCREF = doc(fdb, "project_tracker", "main");
+
+// NEW: References for the new data structure
+const META_COLLECTION_NAME = "meta";
+const CONFIG_DOC_ID = "config"; // Document for global settings
+const CONFIG_DOC_REF = doc(fdb, META_COLLECTION_NAME, CONFIG_DOC_ID);
+
+const PROJECTS_COL_NAME = "projects";
+const PROJECTS_COL_REF = collection(fdb, PROJECTS_COL_NAME);
+
+// Helper functions for nested paths
+const getActivitiesCollectionRef = (projectId) => collection(fdb, PROJECTS_COL_NAME, projectId, "activities");
+const getCheckpointDataCollectionRef = (projectId, activityId) => collection(fdb, PROJECTS_COL_NAME, projectId, "activities", activityId, "checkpointData");
+
+// END OF BLOCK 1
 
 function setConnBadge(state, label){
   const b = document.getElementById("connBadge");
@@ -345,82 +358,454 @@ function colW(key){
 /* =========================================================================
    Data
    ========================================================================= */
-let DATA=null, editKey=null;
-let _lastSaveJSON="";
+<script type="module">
+// ... (Previous code, Block 1) ...
+
+/* =========================================================================
+   Column widths
+   ========================================================================= */
+const DEFW={no:46, project:230, activities:182, wi:200, st:122, addcp:108, next:190, due:132, note:170};
+function colW(key){
+  // MODIFIED: Access DATA.colWidths directly
+  if(DATA && DATA.colWidths && DATA.colWidths[key]!=null) return DATA.colWidths[key];
+  if(key.indexOf("wi:")===0) return DEFW.wi;
+  if(key.indexOf("st:")===0) return DEFW.st;
+  if(key.indexOf("cc:")===0) return 40;
+  return DEFW[key]||120;
+}
+
+/* =========================================================================
+   Data
+   ========================================================================= */
+// MODIFIED: DATA will now represent the full nested structure in memory
+let DATA = {
+    checkpoints: [],
+    activeCp: null,
+    colWidths: {},
+    projects: [] // Array of project objects, each containing an array of activities
+};
+let editKey = null;
+
 function uid(){return Math.random().toString(36).slice(2,9)}
 
-function seed(){
-  const cp1="cp_a", cp2="cp_b";
-  const mk=(name,s1,s2,wi1,wi2,next,due,note)=>({
-    id:uid(), name, next:next||"", due:due||"", note:note||"",
-    cps:{[cp1]:{wi:wi1||"",st:s1},[cp2]:{wi:wi2||"",st:s2}}
-  });
+// MODIFIED: `seed` function now returns initial settings
+function seedSettings(){
+  const cp1="cp_a";
   return {
-    checkpoints:[{id:cp1,label:"As of 5 Jan 2026",collapsed:false},{id:cp2,label:"As of 20 Jan 2026",collapsed:false}],
-    activeCp:cp2, colWidths:{},
-    projects:[{
-      id:uid(), name:"Digital Catalogue", hideProgress:false,
-      desc:"Digital catalogue with advanced SEO for the ACC ONE platform.",
-      activities:[
-        mk("Kick-off","done","done","Kickoff complete","Kickoff complete"),
-        mk("Feasibility Study","done","done","Drafting requirement","Drafting requirement","","2026-01-27"),
-        mk("User Commitment","done","done","Make sure all users are committed to the project, including:\n1. Underwriting\n2. Service Department\n3. Marketing","Make sure all users are committed to the project, including:\n1. Underwriting\n2. Service Department\n3. Marketing","","2026-01-27"),
-        mk("BRD Drafting","done","done","Drafting requirement","Drafting requirement","","2026-01-27"),
-        mk("UI/UX Design","done","done","Lorem Ipsum Dolor sit Amet","Lorem Ipsum Dolor sit Amet","","2026-01-27"),
-        mk("Grooming","prog","done","","Grooming Done","","2026-01-27"),
-        mk("System Development","backlog","prog","","Development started on time","1. Make sure development stays on target\n2. Conduct weekly review",""),
-        mk("System Integration","backlog","prog","","","Prepare testing environment",""),
-        mk("User Acceptance Testing","cancel","cancel","","","",""),
-        mk("Implementation","backlog","backlog","","","","")
-      ]
-    }]
+    checkpoints:[{id:cp1,label:"As of "+new Date().toLocaleDateString('en-US', {day: 'numeric', month: 'short', year: 'numeric'}),collapsed:false}],
+    activeCp:cp1,
+    colWidths:{}
   };
 }
 
-function normalizeData(d){
-  if(!d || !d.checkpoints || !d.checkpoints.length) return null;
-  if(!d.colWidths) d.colWidths={};
-  if(!d.checkpoints.some(c=>c.id===d.activeCp)) d.activeCp=d.checkpoints[d.checkpoints.length-1].id;
-  return d;
+// NEW: Function to create a new project object
+function newProject(name) {
+    return {
+        id: uid(), // Firestore document ID
+        name: name,
+        desc: "",
+        hideProgress: false,
+        order: Date.now(), // For sorting projects
+        activities: [] // Will be populated from subcollection
+    };
 }
 
+// NEW: Function to create a new activity object
+function newActivity(){
+    const cps = {};
+    // When creating a new activity, initialize cps for all existing checkpoints
+    DATA.checkpoints.forEach(c => cps[c.id] = { wi: "", st: "backlog" });
+    return {
+        id: uid(), // Firestore document ID
+        name: "New Activity",
+        next: "",
+        due: "",
+        note: "",
+        order: Date.now(), // For sorting activities
+        // cps will be stored in a subcollection, but we'll manage it as an object here for convenience
+        // when saving, we'll convert it to individual documents
+        cps: cps
+    };
+}
+
+
+// MODIFIED: `normalizeSettings` now applies only to settings data
+function normalizeSettings(settingsData){
+  if(!settingsData || !settingsData.checkpoints || !settingsData.checkpoints.length) {
+      // If no settings data or checkpoints, return initial seed for settings
+      return seedSettings();
+  }
+  if(!settingsData.colWidths) settingsData.colWidths={};
+  if(!settingsData.checkpoints.some(c=>c.id===settingsData.activeCp)) settingsData.activeCp=settingsData.checkpoints[settingsData.checkpoints.length-1].id;
+  return settingsData;
+}
+
+// END OF BLOCK 2
+// NEW: Function to save global settings (checkpoints, activeCp, colWidths)
+async function saveSettings() {
+    const settingsToSave = {
+        checkpoints: DATA.checkpoints,
+        activeCp: DATA.activeCp,
+        colWidths: DATA.colWidths
+    };
+    try {
+        await setDoc(CONFIG_DOC_REF, settingsToSave);
+    } catch (e) {
+        console.error("Firestore settings save failed:", e);
+        // Fallback for settings if Firestore fails (e.g., offline)
+        try { localStorage.setItem("pt_settings_v3", JSON.stringify(settingsToSave)); } catch(_) {}
+    }
+}
+
+// NEW: Function to save a single project document
+async function saveProject(project) {
+    const projectDocRef = doc(PROJECTS_COL_REF, project.id);
+    // Prepare project data for Firestore (excluding activities array)
+    const projectDataToSave = {
+        name: project.name,
+        desc: project.desc,
+        hideProgress: project.hideProgress,
+        order: project.order
+    };
+    try {
+        await setDoc(projectDocRef, projectDataToSave);
+    } catch (e) {
+        console.error("Firestore project save failed:", e);
+        try { localStorage.setItem("pt_project_" + project.id, JSON.stringify(projectDataToSave)); } catch(_) {}
+    }
+}
+
+// NEW: Function to save a single activity document
+async function saveActivity(projectId, activity) {
+    const activityDocRef = doc(getActivitiesCollectionRef(projectId), activity.id);
+    // Prepare activity data for Firestore (excluding cps object)
+    const activityDataToSave = {
+        name: activity.name,
+        next: activity.next,
+        due: activity.due,
+        note: activity.note,
+        order: activity.order
+    };
+    try {
+        await setDoc(activityDocRef, activityDataToSave);
+        // Also save/update checkpoint data for this activity
+        for (const cpId in activity.cps) {
+            await saveCheckpointData(projectId, activity.id, cpId, activity.cps[cpId]);
+        }
+    } catch (e) {
+        console.error("Firestore activity save failed:", e);
+        try { localStorage.setItem(`pt_activity_${projectId}_${activity.id}`, JSON.stringify(activityDataToSave)); } catch(_) {}
+    }
+}
+
+// NEW: Function to save checkpoint data for a specific activity and checkpoint
+async function saveCheckpointData(projectId, activityId, cpId, cpData) {
+    const cpDataDocRef = doc(getCheckpointDataCollectionRef(projectId, activityId), cpId);
+    try {
+        await setDoc(cpDataDocRef, cpData);
+    } catch (e) {
+        console.error("Firestore checkpoint data save failed:", e);
+        try { localStorage.setItem(`pt_cpdata_${projectId}_${activityId}_${cpId}`, JSON.stringify(cpData)); } catch(_) {}
+    }
+}
+
+// NEW: Function to delete a project document AND its subcollections (activities, checkpointData)
+async function deleteProjectAndSubcollections(projectId) {
+    try {
+        const batch = writeBatch(fdb);
+        const activitiesRef = getActivitiesCollectionRef(projectId);
+        const activitiesSnapshot = await getDocs(activitiesRef);
+
+        for (const activityDoc of activitiesSnapshot.docs) {
+            const activityId = activityDoc.id;
+            const checkpointDataRef = getCheckpointDataCollectionRef(projectId, activityId);
+            const checkpointDataSnapshot = await getDocs(checkpointDataRef);
+            for (const cpDataDoc of checkpointDataSnapshot.docs) {
+                batch.delete(cpDataDoc.ref);
+            }
+            batch.delete(activityDoc.ref);
+        }
+        batch.delete(doc(PROJECTS_COL_REF, projectId)); // Delete the project document itself
+        await batch.commit();
+    } catch (e) {
+        console.error("Firestore project and subcollections deletion failed:", e);
+    }
+}
+
+// NEW: Function to delete an activity document AND its checkpointData subcollection
+async function deleteActivityAndSubcollection(projectId, activityId) {
+    try {
+        const batch = writeBatch(fdb);
+        const checkpointDataRef = getCheckpointDataCollectionRef(projectId, activityId);
+        const checkpointDataSnapshot = await getDocs(checkpointDataRef);
+        for (const cpDataDoc of checkpointDataSnapshot.docs) {
+            batch.delete(cpDataDoc.ref);
+        }
+        batch.delete(doc(getActivitiesCollectionRef(projectId), activityId)); // Delete the activity document itself
+        await batch.commit();
+    } catch (e) {
+        console.error("Firestore activity and subcollection deletion failed:", e);
+    }
+}
+
+// END OF BLOCK 3
+  
+// MODIFIED: `load` function now handles settings and projects/activities/checkpointData separately
 async function load(){
   setConnBadge("connecting","Connecting…");
   try{
-    const snap = await getDoc(DOCREF);
-    DATA = normalizeData(snap.exists() ? snap.data() : null) || seed();
-    if(!snap.exists()) await save();   // first run — write the seed data
-    render();
+    // 1. Fetch global settings (meta/config)
+    const settingsSnap = await getDoc(CONFIG_DOC_REF);
+    const initialSettings = normalizeSettings(settingsSnap.exists() ? settingsSnap.data() : null);
 
-    // Live listener — fires when any user saves a change
-    onSnapshot(DOCREF, {includeMetadataChanges:true}, snap=>{
+    DATA.checkpoints = initialSettings.checkpoints;
+    DATA.activeCp = initialSettings.activeCp;
+    DATA.colWidths = initialSettings.colWidths;
+
+    // 2. Fetch all projects from the /projects collection
+    const projectsSnapshot = await getDocs(query(PROJECTS_COL_REF, orderBy("order")));
+    const fetchedProjects = [];
+
+    for (const projectDoc of projectsSnapshot.docs) {
+        const projectId = projectDoc.id;
+        const projectData = projectDoc.data();
+        const project = { id: projectId, ...projectData, activities: [] }; // Initialize activities array
+
+        // 3. For each project, fetch its activities subcollection
+        const activitiesSnapshot = await getDocs(query(getActivitiesCollectionRef(projectId), orderBy("order")));
+        const fetchedActivities = [];
+
+        for (const activityDoc of activitiesSnapshot.docs) {
+            const activityId = activityDoc.id;
+            const activityData = activityDoc.data();
+            const activity = { id: activityId, ...activityData, cps: {} }; // Initialize cps object
+
+            // 4. For each activity, fetch its checkpointData subcollection
+            const checkpointDataSnapshot = await getDocs(getCheckpointDataCollectionRef(projectId, activityId));
+            checkpointDataSnapshot.docs.forEach(cpDataDoc => {
+                activity.cps[cpDataDoc.id] = cpDataDoc.data();
+            });
+            fetchedActivities.push(activity);
+        }
+        project.activities = fetchedActivities;
+        fetchedProjects.push(project);
+    }
+
+    DATA.projects = fetchedProjects;
+
+    // If initial settings didn't exist or no projects were fetched, seed initial data
+    if (!settingsSnap.exists()) {
+        await saveSettings(); // Save the seeded settings
+    }
+    if (DATA.projects.length === 0) {
+        // Seed an initial project and activity if none exist
+        const initialProject = newProject("My First Project");
+        const initialActivity = newActivity(); // This will use checkpoints from DATA.checkpoints
+        initialProject.activities.push(initialActivity); // Add activity to the in-memory project
+        DATA.projects.push(initialProject); // Add project to in-memory DATA
+
+        await saveProject(initialProject); // Save the initial project document
+        await saveActivity(initialProject.id, initialActivity); // Save the initial activity document
+    }
+
+    render(); // Initial render after all data is loaded
+
+    // --- Setup Real-time Listeners ---
+
+    // Listener for global config changes
+    onSnapshot(CONFIG_DOC_REF, { includeMetadataChanges: true }, snap => {
       setConnBadge(snap.metadata.fromCache ? "offline" : "online",
                    snap.metadata.fromCache ? "Offline (cached)" : "Live (synced)");
-      const incoming = snap.data();
-      if(!incoming) return;
-      const json = JSON.stringify(incoming);
-      if(json === _lastSaveJSON) return;  // echo of our own write — ignore
-      if(editKey !== null) return;        // user is mid-edit — don't disrupt
-      DATA = normalizeData(incoming) || DATA;
+      const incomingSettings = snap.data();
+      if (!incomingSettings) return; // Document deleted or empty
+
+      const currentSettingsJson = JSON.stringify({ checkpoints: DATA.checkpoints, activeCp: DATA.activeCp, colWidths: DATA.colWidths });
+      const incomingSettingsJson = JSON.stringify(incomingSettings);
+
+      if (incomingSettingsJson === currentSettingsJson) return; // No actual change or echo of our own write
+
+      // Only update if changes are detected and we're not mid-edit of settings-related fields
+      // editKey could be "cp_a", "rz_project", etc.
+      if (editKey && (editKey.startsWith("cp_") || editKey.startsWith("rz_"))) {
+          console.log("Ignoring settings update due to active edit.");
+          return;
+      }
+
+      // Update DATA with incoming settings
+      DATA.checkpoints = incomingSettings.checkpoints;
+      DATA.activeCp = incomingSettings.activeCp;
+      DATA.colWidths = incomingSettings.colWidths;
       render();
     });
+
+    // Listener for changes in the projects collection (add, modify, delete projects)
+    onSnapshot(query(PROJECTS_COL_REF, orderBy("order")), { includeMetadataChanges: true }, async projectsSnapshot => {
+        setConnBadge(projectsSnapshot.metadata.fromCache ? "offline" : "online",
+                     projectsSnapshot.metadata.fromCache ? "Offline (cached)" : "Live (synced)");
+
+        const updatedProjectsMap = new Map();
+        for (const doc of projectsSnapshot.docs) {
+            updatedProjectsMap.set(doc.id, { id: doc.id, ...doc.data(), activities: [] });
+        }
+
+        // Deep update: For each project, fetch its nested activities and checkpointData
+        // This is necessary because subcollection listeners are per document
+        for (const [projectId, project] of updatedProjectsMap) {
+            const activitiesSnapshot = await getDocs(query(getActivitiesCollectionRef(projectId), orderBy("order")));
+            const fetchedActivities = [];
+            for (const activityDoc of activitiesSnapshot.docs) {
+                const activity = { id: activityDoc.id, ...activityDoc.data(), cps: {} };
+                const checkpointDataSnapshot = await getDocs(getCheckpointDataCollectionRef(projectId, activity.id));
+                checkpointDataSnapshot.docs.forEach(cpDataDoc => {
+                    activity.cps[cpDataDoc.id] = cpDataDoc.data();
+                });
+                fetchedActivities.push(activity);
+            }
+            project.activities = fetchedActivities;
+        }
+
+        const newProjectsArray = Array.from(updatedProjectsMap.values());
+        // Sort to maintain consistent order
+        newProjectsArray.sort((a, b) => a.order - b.order);
+
+        // Check for deep changes to prevent unnecessary renders, especially if user is editing
+        let deepChangeDetected = false;
+        if (newProjectsArray.length !== DATA.projects.length) {
+            deepChangeDetected = true;
+        } else {
+            for (let i = 0; i < newProjectsArray.length; i++) {
+                if (JSON.stringify(newProjectsArray[i]) !== JSON.stringify(DATA.projects[i])) {
+                    deepChangeDetected = true;
+                    break;
+                }
+            }
+        }
+
+        if (deepChangeDetected && !editKey) {
+            DATA.projects = newProjectsArray;
+            render();
+        } else if (deepChangeDetected && editKey) {
+            console.log("Ignoring projects update due to active edit.");
+        }
+    });
+
   }catch(e){
-    console.error("Firestore read failed:", e);
+    console.error("Firestore data load failed:", e);
     setConnBadge("offline","Error — local only");
-    try{ const raw=localStorage.getItem("pt_data_v3"); DATA=normalizeData(raw?JSON.parse(raw):null)||seed(); }
-    catch(_){ DATA=seed(); }
+    // Fallback to localStorage if Firestore fails entirely (this part might need
+    // significant refactoring if you want full local storage persistence for nested data)
+    try{
+        const localSettings = localStorage.getItem("pt_settings_v3");
+        const parsedSettings = localSettings ? normalizeSettings(JSON.parse(localSettings)) : seedSettings();
+
+        DATA.checkpoints = parsedSettings.checkpoints;
+        DATA.activeCp = parsedSettings.activeCp;
+        DATA.colWidths = parsedSettings.colWidths;
+
+        // Simplified local storage fallback for projects/activities/cpData
+        // This is just a placeholder and would not fully reconstruct the nested data
+        // from individual project/activity/cpdata items if they were saved separately.
+        // For a robust offline experience with this new structure, you'd need IndexedDB or similar.
+        const localProjects = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith("pt_project_")) {
+                try {
+                    const projectId = key.replace("pt_project_", "");
+                    const projectData = JSON.parse(localStorage.getItem(key));
+                    // This local storage recovery is *very* basic and won't recover nested activities/cps
+                    localProjects.push({ id: projectId, ...projectData, activities: [] });
+                } catch (parseError) {
+                    console.warn("Failed to parse local project data for key:", key, parseError);
+                }
+            }
+        }
+        DATA.projects = localProjects.length > 0 ? localProjects : [newProject("Initial Project (Local)")];
+
+    }
+    catch(localError){
+        console.error("Local storage fallback failed:", localError);
+        DATA = { ...seedSettings(), projects: [newProject("Initial Project (Local)")] };
+    }
     render();
   }
 }
 
-async function save(){
-  const json = JSON.stringify(DATA);
-  _lastSaveJSON = json;
-  try{ await setDoc(DOCREF, DATA); }
-  catch(e){ console.error("Firestore save failed:", e); try{ localStorage.setItem("pt_data_v3", json); }catch(_){} }
+// END OF BLOCK 4
+
+
+<script type="module">
+// ... (Previous code, Blocks 1-4) ...
+
+// MODIFIED: `commit` now saves based on the type of change (settings, project, activity, or checkpoint data)
+async function commit(){
+    // Regular expression to parse the editKey
+    // Format: "type:projectId:activityId:checkpointId" or "type:projectId:activityId" or "type:projectId" or "type"
+    const editKeyRegex = /^(pn|pd|an|wi|st|nx|due|nt|cp|rz):?([a-zA-Z0-9]+)?:?([a-zA-Z0-9]+)?:?([a-zA-Z0-9]+)?/;
+    const match = editKey && editKey.match(editKeyRegex);
+
+    if (match) {
+        const type = match[1];
+        const projectId = match[2];
+        const activityId = match[3];
+        const checkpointId = match[4];
+
+        if (type === "pn" || type === "pd") { // Project name or description edit
+            const project = DATA.projects.find(p => p.id === projectId);
+            if (project) await saveProject(project);
+        } else if (type === "an" || type === "nx" || type === "due" || type === "nt") { // Activity field edit
+            const project = DATA.projects.find(p => p.id === projectId);
+            if (project) {
+                const activity = project.activities.find(a => a.id === activityId);
+                if (activity) await saveActivity(projectId, activity);
+            }
+        } else if (type === "wi" || type === "st") { // Work item or status edit (checkpoint data)
+            const project = DATA.projects.find(p => p.id === projectId);
+            if (project) {
+                const activity = project.activities.find(a => a.id === activityId);
+                if (activity && activity.cps[checkpointId]) {
+                    await saveCheckpointData(projectId, activityId, checkpointId, activity.cps[checkpointId]);
+                }
+            }
+        } else { // It's a settings change (cp for checkpoint, rz for resize)
+            await saveSettings();
+        }
+    } else {
+        // If editKey doesn't match a specific type, assume it's a general settings change (e.g., adding project/checkpoint)
+        await saveSettings();
+    }
+
+    editKey = null; // Clear the editKey after committing
+    render(); // Re-render after commit
 }
 
-function commit(){ editKey=null; save(); render(); }
+/* =========================================================================
+   Helpers
+   ========================================================================= */
+function el(tag,attrs,...kids){
+  const n=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==="class")n.className=attrs[k];
+    else if(k==="html")n.innerHTML=attrs[k];
+    else if(k.startsWith("on")&&typeof attrs[k]==="function")n.addEventListener(k.slice(2),attrs[k]);
+    else if(attrs[k]!=null)n.setAttribute(k,attrs[k]);
+  }
+  kids.flat().forEach(c=>{ if(c==null)return; n.appendChild(typeof c==="string"?document.createTextNode(c):c); });
+  return n;
+}
+function icon(name,cls){ return el("span",{class:"ic "+(cls||""),html:ICONS[name]||""}); }
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function fmtDate(iso){ if(!iso)return "TBD"; const d=new Date(iso+"T00:00:00"); if(isNaN(d))return "TBD"; return d.getDate()+" "+MONTHS[d.getMonth()]+" "+d.getFullYear(); }
+
+function projStats(p){
+  const cp=DATA.activeCp; const c={backlog:0,prog:0,done:0,cancel:0};
+  p.activities.forEach(a=>{ const st=(a.cps[cp]&&a.cps[cp].st)||"backlog"; if(c[st]!=null)c[st]++; });
+  const total=p.activities.length;
+  return {c, total, pct: total? Math.round(c.done/total*100):0};
+}
+function anyExpandedPast(){ return DATA.checkpoints.some(c=>!c.collapsed && c.id!==DATA.activeCp); }
+
+// END OF BLOCK 5
 
 /* =========================================================================
    Helpers

@@ -167,6 +167,28 @@
   .pill.back{background:#fff; color:#6b6b70; border:1.4px solid #d3d3d9}
   .pill.cancel{background:var(--gray); color:#fff}
   td.c-st{text-align:center; vertical-align:middle}
+  /* status dropdown pill + menu */
+  .pill.pill-dd{gap:4px; padding-right:9px}
+  .pill-caret{width:11px;height:11px;display:inline-flex;align-items:center;opacity:.75}
+  .pill-caret svg{width:100%;height:100%}
+  .status-menu{min-width:172px; padding:6px}
+  .status-menu .st-item{padding:7px 9px}
+  .status-menu .st-item .pill{min-width:92px; cursor:pointer}
+  .status-menu .st-item .chk{margin-left:auto}
+
+  /* drag-to-reorder */
+  .act-grip{flex:0 0 auto; cursor:grab; color:var(--label3); width:15px;height:16px; opacity:0; transition:opacity .12s; margin-top:1px}
+  tr:hover .act-grip{opacity:.6}
+  .act-grip:hover{color:var(--ink2)}
+  .act-grip:active{cursor:grabbing}
+  .act-grip svg{width:100%;height:100%}
+  .drag-float{position:fixed; pointer-events:none; z-index:500; opacity:.97;
+    box-shadow:0 14px 34px rgba(0,0,0,.22); border-radius:9px; overflow:hidden; background:#fff}
+  .drag-float td{position:static; background:#fff; box-shadow:none}
+  .drag-float .drag-blank{background:transparent; border:none}
+  tr.dragging-src > td{opacity:.32}
+  tr.drop-before > td:not(.c-no):not(.c-project){box-shadow:inset 0 3px 0 -1px var(--indigo)}
+  tr.drop-after  > td:not(.c-no):not(.c-project){box-shadow:inset 0 -3px 0 -1px var(--indigo)}
 
   /* ---------- add-checkpoint column ---------- */
   td.c-addcp{text-align:center; vertical-align:middle; background:#fafafc}
@@ -266,7 +288,7 @@
 <body>
   <div class="topbar">
     <div class="title-block">
-      <div class="title-row"><h1>Project Tracker</h1><span class="ver">v2.0</span></div>
+      <div class="title-row"><h1>Project Tracker</h1><span class="ver">v2.1</span></div>
       <div class="subtitle">by ACC ONE Product Management</div>
     </div>
     <div class="spacer"></div>
@@ -347,6 +369,7 @@ const ICONS = {
   trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>',
   download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
   chevDown:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+  grip:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>',
   chevRight:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
   dots:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
   eyeOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20C5 20 1 12 1 12a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22M9.88 9.88a3 3 0 0 0 4.24 4.24"/></svg>',
@@ -396,6 +419,7 @@ let DATA = null;                    // assembled view-model used by render()
 let editKey = null;
 let pendingRender = false;
 let booted = false;
+let dragState = null;            // active activity-row drag, or null
 
 function uid(){ return Math.random().toString(36).slice(2,9); }
 
@@ -425,7 +449,7 @@ function rebuild(){
 /* Re-render, unless a text field is being edited (defer until blur). */
 function scheduleRender(){
   rebuild();
-  if (editKey){ pendingRender = true; return; }
+  if (editKey || dragState){ pendingRender = true; return; }
   render();
 }
 
@@ -732,7 +756,7 @@ function render(){
     const span = p.activities.length + 1;
     p.activities.forEach((a,ai) => {
       const first = ai === 0;
-      const tr = el("tr");
+      const tr = el("tr",{class:"act-tr","data-pid":p.id,"data-aid":a.id});
       if (first){
         tr.appendChild(el("td",{class:"c-no blk-left blk-tl blk-bl rtop", rowspan:span}, String(pi+1)));
         tr.appendChild(projectCell(p,span));
@@ -854,6 +878,8 @@ function activityCell(p,a){
     ta.value = a.name||""; td.appendChild(ta);
   } else {
     td.appendChild(el("div",{class:"act-row"},
+      el("span",{class:"act-grip", html:ICONS.grip, title:"Drag to reorder",
+        onmousedown:(e)=>{ e.stopPropagation(); startActivityDrag(e, p.id, a.id, e.currentTarget.closest("tr")); }}),
       el("div",{class:"act-name", onclick:()=>startEdit("an:"+p.id+":"+a.id)}, a.name||"Activity"),
       el("span",{class:"act-del", html:ICONS.trash, title:"Delete activity", onclick:()=>deleteActivity(p,a)})));
   }
@@ -875,13 +901,30 @@ function workItemCell(p,a,cp){
     onclick:()=>startEdit(key)}, d.wi||""));
 }
 
-/* ---------- status pill ---------- */
+/* ---------- status pill (dropdown) ---------- */
 function statusCell(p,a,cp){
   const d = (a.cps && a.cps[cp.id]) || { wi:"", st:"backlog" };
   const st = d.st || "backlog"; const m = STMETA[st];
-  return el("td",{class:"c-st"}, el("span",{class:"pill "+m.cls, onclick:()=>{
-    const i = STATUS.indexOf(st); setCps(p.id,a.id,cp.id,"st",STATUS[(i+1)%STATUS.length]);
-  }}, m.label));
+  return el("td",{class:"c-st"}, el("span",{class:"pill pill-dd "+m.cls, onclick:(e)=>statusMenu(e,p,a,cp,st)},
+    el("span",{class:"pill-lbl"}, m.label), el("span",{class:"pill-caret", html:ICONS.chevDown})));
+}
+function statusMenu(e,p,a,cp,current){
+  e.stopPropagation();
+  closeMenus();
+  const pill = e.currentTarget;
+  const menu = el("div",{class:"menu status-menu"});
+  STATUS.forEach(st => {
+    const meta = STMETA[st];
+    const row = el("div",{class:"mi st-item", onclick:()=>{ closeMenus(); if (st !== current) setCps(p.id,a.id,cp.id,"st",st); }},
+      el("span",{class:"pill "+meta.cls}, meta.label));
+    if (st === current) row.appendChild(el("span",{class:"chk", html:ICONS.check}));
+    menu.appendChild(row);
+  });
+  document.body.appendChild(menu);
+  const r = pill.getBoundingClientRect(); const mr = menu.getBoundingClientRect();
+  menu.style.left = Math.min(r.left, window.innerWidth - mr.width - 10) + "px";
+  menu.style.top  = Math.min(r.bottom + 5, window.innerHeight - mr.height - 10) + "px";
+  setTimeout(()=>document.addEventListener("mousedown",outsideMenu,true),0);
 }
 
 /* ---------- generic text cell (next / note) ---------- */
@@ -1025,6 +1068,97 @@ function endResize(){
   rzState = null; document.body.style.cursor = ""; document.body.style.userSelect = "";
   window.removeEventListener("mousemove",doResize); window.removeEventListener("mouseup",endResize);
   setDoc(cfgRef(), { colWidths: CONFIG.colWidths }, { merge:true }).catch(fail);
+}
+
+/* =========================================================================
+   Drag-to-reorder activities (within a project)
+   The floating preview carries the whole activity row EXCEPT the No.,
+   Project and Add-Checkpoint cells (those stay put). On drop, the affected
+   activities' `order` fields are rewritten in one batch.
+   ========================================================================= */
+function startActivityDrag(e, pid, aid, tr){
+  if (e.button !== 0 || !tr) return;
+  e.preventDefault();
+  const grid = document.getElementById("grid");
+  if (!grid) return;
+  const gridRect = grid.getBoundingClientRect();
+  const trRect = tr.getBoundingClientRect();
+  const float = buildDragFloat(grid, tr);
+  float.style.left  = gridRect.left + "px";
+  float.style.top   = trRect.top + "px";
+  float.style.width = grid.offsetWidth + "px";
+  document.body.appendChild(float);
+  tr.classList.add("dragging-src");
+  dragState = { pid, aid, tr, float, offsetY: e.clientY - trRect.top, targetAid:null, after:false };
+  document.body.style.userSelect = "none";
+  document.body.style.cursor = "grabbing";
+  window.addEventListener("mousemove", onActivityDragMove);
+  window.addEventListener("mouseup", onActivityDragEnd);
+}
+function buildDragFloat(grid, tr){
+  const float = el("table",{class:"grid drag-float"});
+  const cg = grid.querySelector("colgroup");
+  if (cg) float.appendChild(cg.cloneNode(true));
+  const blank = ()=> el("td",{class:"drag-blank"});
+  const row = el("tr");
+  let actClone = null; const cpClones = []; const tailClones = [];
+  [...tr.children].forEach(td => {
+    if (td.classList.contains("c-no") || td.classList.contains("c-project") || td.classList.contains("c-addcp")) return;
+    if (td.classList.contains("c-activities")) { actClone = td.cloneNode(true); return; }
+    if (td.classList.contains("c-wi") || td.classList.contains("c-st") || td.classList.contains("cp-collapsed-c")) { cpClones.push(td.cloneNode(true)); return; }
+    tailClones.push(td.cloneNode(true));
+  });
+  const scrub = (n)=>{ n.removeAttribute("rowspan"); n.querySelectorAll("[id]").forEach(x=>x.removeAttribute("id")); };
+  row.appendChild(blank()); row.appendChild(blank());                         /* No., Project */
+  if (actClone){ scrub(actClone); row.appendChild(actClone); } else row.appendChild(blank());
+  cpClones.forEach(c => { scrub(c); row.appendChild(c); });
+  row.appendChild(blank());                                                   /* Add Checkpoint */
+  tailClones.forEach(c => { scrub(c); row.appendChild(c); });                 /* Next, Due, Note */
+  const tb = el("tbody"); tb.appendChild(row); float.appendChild(tb);
+  return float;
+}
+function clearDropIndicator(){
+  document.querySelectorAll("tr.drop-before,tr.drop-after").forEach(r => r.classList.remove("drop-before","drop-after"));
+}
+function onActivityDragMove(e){
+  if (!dragState) return;
+  dragState.float.style.top = (e.clientY - dragState.offsetY) + "px";
+  clearDropIndicator();
+  const rows = [...document.querySelectorAll('tr.act-tr[data-pid="'+CSS.escape(dragState.pid)+'"]')];
+  dragState.targetAid = null;
+  for (const r of rows){
+    const rc = r.getBoundingClientRect();
+    if (e.clientY >= rc.top && e.clientY <= rc.bottom){
+      const after = e.clientY > rc.top + rc.height/2;
+      r.classList.add(after ? "drop-after" : "drop-before");
+      dragState.targetAid = r.dataset.aid;
+      dragState.after = after;
+      break;
+    }
+  }
+}
+function onActivityDragEnd(){
+  if (!dragState) return;
+  const ds = dragState; dragState = null;
+  ds.float.remove();
+  ds.tr.classList.remove("dragging-src");
+  clearDropIndicator();
+  window.removeEventListener("mousemove", onActivityDragMove);
+  window.removeEventListener("mouseup", onActivityDragEnd);
+  document.body.style.userSelect = ""; document.body.style.cursor = "";
+  if (ds.targetAid && ds.targetAid !== ds.aid){
+    reorderActivity(ds.pid, ds.aid, ds.targetAid, ds.after);
+  } else if (pendingRender){ render(); }
+}
+function reorderActivity(pid, aid, targetAid, after){
+  const m = ACTIVITIES.get(pid); if (!m) return;
+  let ids = [...m.values()].sort((a,b)=>(a.order??0)-(b.order??0)).map(x=>x.id).filter(id => id !== aid);
+  let ti = ids.indexOf(targetAid); if (ti < 0) ti = ids.length; if (after) ti += 1;
+  ids.splice(ti, 0, aid);
+  const batch = writeBatch(db); let changed = 0;
+  ids.forEach((id,i) => { const a = m.get(id); if (a && a.order !== i){ a.order = i; batch.update(actRef(pid,id), { order:i }); changed++; } });
+  scheduleRender();
+  if (changed) batch.commit().catch(fail);
 }
 
 /* =========================================================================

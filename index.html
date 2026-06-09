@@ -253,10 +253,8 @@
   .setup-box .note{font-size:11.5px; color:var(--label); margin-top:10px; line-height:1.5}
 </style>
 
-<!-- Firebase SDK (compat mode) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
+  
 <body>
   <div class="topbar">
     <h1>Project Tracker</h1>
@@ -278,71 +276,178 @@
 
   <div class="toast" id="toast"></div>
 
-<script>
-/* =========================================================================
-   Icons
-   ========================================================================= */
-const ICONS={
-  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
-  trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>',
-  download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
-  chevDown:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
-  chevRight:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
-  dots:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
-  eyeOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20C5 20 1 12 1 12a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22M9.88 9.88a3 3 0 0 0 4.24 4.24"/></svg>',
-  eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
-  pencil:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
-  play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z"/></svg>',
-  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg>',
-  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>'
-};
+<script type="module">
+<script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  // Import Firestore specific functions
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-/* =========================================================================
-   Status meta
-   ========================================================================= */
-const STATUS=["backlog","prog","done","cancel"];
-const STMETA={
-  backlog:{label:"Backlog", cls:"back",   dot:"#c5c5cc", xls:"#FFFFFF", xt:"#6b6b70"},
-  prog:   {label:"On Progress", cls:"prog", dot:"#f0a500", xls:"#F0A500", xt:"#FFFFFF"},
-  done:   {label:"Done",    cls:"done",   dot:"#2bb24c", xls:"#2BB24C", xt:"#FFFFFF"},
-  cancel: {label:"Cancelled",cls:"cancel",dot:"#8a8a8e", xls:"#8A8A8E", xt:"#FFFFFF"}
-};
+  /* =========================================================================
+     Firebase Configuration
+     =========================================================================
+     SETUP INSTRUCTIONS:
+     1. Go to https://console.firebase.google.com/ → "Add project"
+     2. Inside the project: Build → Firestore Database → Create database
+        (choose a region → start in "test mode" for 30-day open access)
+     3. Go to Project Settings ⚙ → General → "Your apps" → </> Web
+        (register app if not done) → copy the firebaseConfig object values below
+     ========================================================================= */
 
-/* =========================================================================
-   Column widths
-   ========================================================================= */
-const DEFW={no:46, project:230, activities:182, wi:200, st:122, addcp:108, next:190, due:132, note:170};
-function colW(key){
-  if(DATA && DATA.colWidths && DATA.colWidths[key]!=null) return DATA.colWidths[key];
-  if(key.indexOf("wi:")===0) return DEFW.wi;
-  if(key.indexOf("st:")===0) return DEFW.st;
-  if(key.indexOf("cc:")===0) return 40;
-  return DEFW[key]||120;
+  // ── PASTE YOUR ACTUAL FIREBASE CONFIG HERE ──────────────────────────────────────
+  const firebaseConfig = {
+    apiKey: "AIzaSyC736u8OFuc-yS2f1j9vFb1xAKE9pMhkIQ",
+    authDomain: "project-tracker-3deab.firebaseapp.com",
+    projectId: "project-tracker-3deab",
+    storageBucket: "project-tracker-3deab.firebasestorage.app",
+    messagingSenderId: "366111364398",
+    appId: "1:366111364398:web:8b5b47af6890a502ce96bf"
+  };
+  // ─────────────────────────────────────────────────────────────────────────
+
+let DATA=null, editKey=null;
+let DOCREF_FS = null; // Renamed to avoid confusion, for Firestore document reference
+let db_fs = null; // Reference to the Firestore service
+let _lastSaveJSON="";
+
+async function initFirebase(){
+  const missing = Object.values(firebaseConfig).some(v => v === "" || v.includes("YOUR_")); // Check if placeholders are still present
+  if(missing){ showSetupBanner(); return false; }
+  try{
+    const app = initializeApp(firebaseConfig);
+    db_fs = getFirestore(app);
+    DOCREF_FS = doc(db_fs, "project_tracker", "main"); // Correct modular way to get doc ref
+
+    // Enable offline persistence for Firestore
+    try {
+      await enableIndexedDbPersistence(db_fs, { synchronizeTabs: true });
+    } catch (err) {
+      if (err.code === "failed-precondition") console.warn("Firestore persistence: multiple tabs open — only one tab gets persistence.");
+      else if (err.code === "unimplemented") console.warn("Firestore persistence not supported in this browser.");
+    }
+    return true;
+  }catch(e){ console.error("Firebase init error:",e); alert("Firebase init failed: "+e.message); return false; }
+}
+
+function showSetupBanner(){
+  const badge=document.getElementById("connBadge");
+  if(badge){badge.className="conn-badge offline";document.getElementById("connLabel").textContent="Not configured";}
+  // Pre-fill textarea with a template
+  const tpl=`{
+  "apiKey": "...",
+  "authDomain": "...",
+  "projectId": "...",
+  "storageBucket": "...",
+  "messagingSenderId": "...",
+  "appId": "..."
+}`;
+  const bx=document.createElement("div");
+  bx.className="setup-banner";
+  bx.innerHTML=`<div class="setup-box">
+  <h2>🔧 Connect to Firebase</h2>
+  <p class="sub">This tracker needs a Firebase Firestore Database to share data across users. Takes ~5 minutes:</p>
+  <ol>
+    <li>Go to <b>console.firebase.google.com</b> → Add project</li>
+    <li>Build → <b>Firestore Database</b> → Create database (test mode)</li>
+    <li>Project Settings ⚙ → General → Your apps → <b>Config</b></li>
+    <li>Paste the config JSON below:</li>
+  </ol>
+  <textarea class="cfg" id="cfgInput" spellcheck="false">${tpl}</textarea>
+  <div class="row">
+    <button class="btn btn-primary" style="flex:1" id="cfgSave">Connect &amp; Save</button>
+    <button class="btn btn-light" id="cfgSkip">Use local only</button>
+  </div>
+  <p class="note">The config is saved in your browser. Anyone who opens the hosted URL with a configured file will share the same database automatically.</p>
+  </div>`;
+  document.body.appendChild(bx);
+  document.getElementById("cfgSave").onclick=()=>{
+    try{
+      const val=JSON.parse(document.getElementById("cfgInput").value.trim());
+      const required=["apiKey","authDomain","projectId","storageBucket","messagingSenderId","appId"];
+      const missing2=required.filter(k=>!val[k]);
+      if(missing2.length){ alert("Missing fields: "+missing2.join(", ")); return; }
+      localStorage.setItem("pt_fbcfg",JSON.stringify(val));
+      bx.remove();
+      location.reload();
+    }catch(e){ alert("Invalid JSON: "+e.message); }
+  };
+  document.getElementById("cfgSkip").onclick=()=>{ bx.remove(); loadLocal(); };
 }
 
 /* =========================================================================
-   Firebase Configuration
-   =========================================================================
-   SETUP INSTRUCTIONS:
-   1. Go to https://console.firebase.google.com/ → "Add project"
-   2. Inside the project: Build → Realtime Database → Create database
-      (choose a region → start in "test mode" for 30-day open access)
-   3. Go to Project Settings (gear icon) → General → "Your apps" → </> Web
-      (register app if not done) → copy the firebaseConfig object values below
-   4. Host this HTML anywhere (e.g. drag onto https://app.netlify.com) and share the URL
+   Data
    ========================================================================= */
+let DATA_KEY="pt_data_v3";  // fallback localStorage key
 
-  // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
-  const FIREBASE_CONFIG = {
-    apiKey:            "PASTE_apiKey_HERE",
-    authDomain:        "PASTE_authDomain_HERE",
-    databaseURL:       "PASTE_databaseURL_HERE",   // e.g. https://my-app-default-rtdb.firebaseio.com
-    projectId:         "PASTE_projectId_HERE",
-    storageBucket:     "PASTE_storageBucket_HERE",
-    messagingSenderId: "PASTE_messagingSenderId_HERE",
-    appId:             "PASTE_appId_HERE"
+function uid(){return Math.random().toString(36).slice(2,9)}
+
+function seed(){
+  const cp1="cp_a", cp2="cp_b";
+  const mk=(name,s1,s2,wi1,wi2,next,due,note)=>({
+    id:uid(), name, next:next||"", due:due||"", note:note||"",
+    cps:{[cp1]:{wi:wi1||"",st:s1},[cp2]:{wi:wi2||"",st:s2}}
+  });
+  return {
+    checkpoints:[{id:cp1,label:"As of 5 Jan 2026",collapsed:false},{id:cp2,label:"As of 20 Jan 2026",collapsed:false}],
+    activeCp:cp2,
+    colWidths:{},
+    projects:[{
+      id:uid(),
+      name:"Digital Catalogue",
+      desc:"Digital catalogue with advanced SEO for the ACC ONE platform.",
+      activities:[
+        mk("Kick-off","done","done","Kickoff complete","Kickoff complete"),
+        mk("Feasibility Study","done","done","Drafting requirement","Drafting requirement","","2026-01-27"),
+        mk("User Commitment","done","done","Make sure all users are committed to the project, including:\n1. Underwriting\n2. Service Department\n3. Marketing","Make sure all users are committed to the project, including:\n1. Underwriting\n2. Service Department\n3. Marketing","","2026-01-27"),
+        mk("BRD Drafting","done","done","Drafting requirement","Drafting requirement","","2026-01-27"),
+        mk("UI/UX Design","done","done","Lorem Ipsum Dolor sit Amet","Lorem Ipsum Dolor sit Amet","","2026-01-27"),
+        mk("Grooming","prog","done","","Grooming Done","","2026-01-27"),
+        mk("System Development","backlog","prog","","Development started on time","1. Make sure development stays on target\n2. Conduct weekly review",""),
+        mk("System Integration","backlog","prog","","","Prepare testing environment",""),
+        mk("User Acceptance Testing","cancel","cancel","","","",""),
+        mk("Implementation","backlog","backlog","","","","")
+      ]
+    }]
   };
-  // ─────────────────────────────────────────────────────────────────────────
+}
+
+function normalizeData(d){
+  if(!d) return null;
+  if(!d.colWidths) d.colWidths={};
+  if(!d.checkpoints||!d.checkpoints.length) return null;
+  if(!d.checkpoints.some(c=>c.id===d.activeCp)) d.activeCp=d.checkpoints[d.checkpoints.length-1].id;
+  return d;
+}
+
+/* --- Firestore path --- */
+// Using async/await for cleaner Promise handling
+async function load(){
+  // Pick up saved config from setup banner if config placeholders still present
+  const savedCfg=localStorage.getItem("pt_fbcfg");
+  if(savedCfg && Object.values(firebaseConfig).some(v=>v.includes("YOUR_"))){ // Use firebaseConfig here
+    try{ Object.assign(firebaseConfig, JSON.parse(savedCfg)); }catch(e){} // Use firebaseConfig here
+  }
+  const ok = await initFirebase(); // Await the async initFirebase
+  if(!ok) return; // setup banner shown
+
+  // Initial read from Firestore
+  try {
+    const snap = await getDoc(DOCREF_FS); // Use getDoc with DOCREF_FS
+    DATA = normalizeData(snap.exists() ? snap.data() : null) || seed(); // snap.exists() and snap.data() for modular SDK
+    render();
+
+    // Real-time listener — fires whenever any user saves a change
+    // includeMetadataChanges lets us track online/offline status from Firestore metadata
+    onSnapshot(DOCREF_FS, {includeMetadataChanges:true}, snap=>{ // Use onSnapshot with DOCREF_FS
+      const badge=document.getElementById("connBadge");
+      const label=document.getElementById("connLabel");
+      if(badge&&label){
+        if(snap.metadata.fromCache){
+          badge.className="conn-badge offline"; label.textContent="Offline (cached)";
+        } else {
+          badge.className="No response
+
+</script>
 
 let DATA=null, editKey=null;
 let DOCREF=null;  // Firestore document reference, set after init

@@ -157,24 +157,49 @@
   .cell-text.empty:before{content:attr(data-ph); color:var(--label3); font-style:italic}
   .cell-edit{width:100%; border:1.5px solid var(--blue); border-radius:7px; padding:6px 8px; font:inherit; font-size:13.5px; resize:vertical; outline:none; background:#fff; color:var(--ink)}
 
+  /* ---------- rich text (Work Item / Next Action / Note) ---------- */
+  .cell-text b,.cell-text strong{font-weight:700}
+  .cell-text ul,.cell-text ol{margin:3px 0; padding-left:21px}
+  .cell-text li{margin:1px 0}
+  .cell-text sub,.cell-text sup{font-size:.75em; line-height:0}
+  .rt-edit{width:100%; min-height:34px; border:1.5px solid var(--blue); border-radius:7px; padding:7px 9px;
+    font:inherit; font-size:13.5px; line-height:1.45; outline:none; background:#fff; color:var(--ink);
+    white-space:pre-wrap; overflow-wrap:anywhere}
+  .rt-edit ul,.rt-edit ol{margin:3px 0; padding-left:21px}
+  .rt-edit li{margin:1px 0}
+  .rt-edit sub,.rt-edit sup{font-size:.75em; line-height:0}
+  .rt-edit:empty:before{content:attr(data-ph); color:var(--label3); font-style:italic}
+  .rt-toolbar{position:fixed; z-index:260; display:flex; align-items:center; gap:1px; padding:4px;
+    background:rgba(255,255,255,.97); backdrop-filter:blur(20px) saturate(180%);
+    border:1px solid var(--line); border-radius:11px; box-shadow:0 10px 30px rgba(0,0,0,.18); animation:pop .12s ease}
+  .rt-tbtn{display:inline-flex; align-items:center; justify-content:center; width:29px; height:29px; padding:0;
+    border:none; background:transparent; border-radius:7px; cursor:pointer; color:var(--ink2);
+    font-size:14px; line-height:1; font-family:Georgia,"Times New Roman",serif}
+  .rt-tbtn:hover{background:#ececf1}
+  .rt-tbtn.on{background:#e7e7fb; color:var(--indigo)}
+  .rt-tbtn svg{width:16px;height:16px}
+  .rt-tbtn sup,.rt-tbtn sub{font-size:.6em}
+  .rt-tsep{width:1px; align-self:stretch; background:var(--line); margin:3px 3px}
+
   /* ---------- status pill ---------- */
-  .pill{display:inline-flex; align-items:center; justify-content:center; min-width:78px; padding:5px 12px;
-    border-radius:14px; font-size:12px; font-weight:650; cursor:pointer; user-select:none;
-    transition:transform .08s, filter .12s; white-space:nowrap}
-  .pill:active{transform:scale(.94)}
+  .pill{display:inline-flex; align-items:center; justify-content:center; min-width:0; padding:7px 16px;
+    border:1.4px solid transparent; border-radius:9px; font-size:12.5px; font-weight:650; line-height:1.1;
+    cursor:pointer; user-select:none; transition:transform .08s, filter .12s; white-space:nowrap}
+  .pill:active{transform:scale(.96)}
   .pill.done{background:var(--green); color:#fff}
   .pill.prog{background:var(--amber); color:#fff}
-  .pill.back{background:#fff; color:#6b6b70; border:1.4px solid #d3d3d9}
+  .pill.back{background:#fff; color:#6b6b70; border-color:#d3d3d9}
   .pill.cancel{background:var(--gray); color:#fff}
   td.c-st{text-align:center; vertical-align:middle}
-  /* status dropdown pill + menu */
-  .pill.pill-dd{gap:4px; padding-right:9px}
-  .pill-caret{width:11px;height:11px;display:inline-flex;align-items:center;opacity:.75}
+  /* status dropdown pill (the in-table trigger) */
+  .pill.pill-dd{gap:6px; padding:7px 12px 7px 15px}
+  .pill-caret{width:12px;height:12px;display:inline-flex;align-items:center;opacity:.8}
   .pill-caret svg{width:100%;height:100%}
-  .status-menu{min-width:172px; padding:6px}
-  .status-menu .st-item{padding:7px 9px}
-  .status-menu .st-item .pill{min-width:92px; cursor:pointer}
-  .status-menu .st-item .chk{margin-left:auto}
+  /* status dropdown menu — uniform rounded-rectangle pills, like the reference */
+  .status-menu{min-width:190px; padding:7px}
+  .status-menu .st-item{padding:5px 6px}
+  .status-menu .st-item .pill{min-width:110px; padding:9px 14px; cursor:pointer}
+  .status-menu .st-item .chk{margin-left:auto; flex:0 0 auto}
 
   /* drag-to-reorder */
   .act-grip{flex:0 0 auto; cursor:grab; color:var(--label3); width:15px;height:16px; opacity:0; transition:opacity .12s; margin-top:1px}
@@ -288,7 +313,7 @@
 <body>
   <div class="topbar">
     <div class="title-block">
-      <div class="title-row"><h1>Project Tracker</h1><span class="ver">v2.1</span></div>
+      <div class="title-row"><h1>Project Tracker</h1><span class="ver">v2.2</span></div>
       <div class="subtitle">by ACC ONE Product Management</div>
     </div>
     <div class="spacer"></div>
@@ -379,7 +404,10 @@ const ICONS = {
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg>',
   layers:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>',
   cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
-  folder:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>'
+  folder:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  bulletList:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>',
+  numberList:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h11M10 12h11M10 18h11"/><text x="1.5" y="8" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">1</text><text x="1.5" y="14" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">2</text><text x="1.5" y="20" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">3</text></svg>',
+  clearFmt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5h11M11 5v9M4 20l16-16"/></svg>'
 };
 
 /* =========================================================================
@@ -673,6 +701,148 @@ const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov
 function labelDate(d){ return d.getDate()+" "+MONTHS[d.getMonth()]+" "+d.getFullYear(); }
 function fmtDate(iso){ if(!iso) return "TBD"; const d=new Date(iso+"T00:00:00"); if(isNaN(d)) return "TBD"; return labelDate(d); }
 
+/* =========================================================================
+   Rich text (Work Item / Next Action / Note)
+   -------------------------------------------------------------------------
+   Stored as light HTML. Legacy plain-text values still render correctly
+   (newlines are turned into <br>), so nothing existing breaks.
+   ========================================================================= */
+const RT_ALLOWED = { B:1,STRONG:1,I:1,EM:1,U:1,S:1,STRIKE:1,SUB:1,SUP:1,UL:1,OL:1,LI:1,BR:1,DIV:1,P:1,SPAN:1 };
+const RT_DROP = { SCRIPT:1,STYLE:1,NOSCRIPT:1,IFRAME:1,OBJECT:1,EMBED:1,TEMPLATE:1,LINK:1,META:1,SVG:1,TITLE:1 };
+function escHtml(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function looksLikeHtml(s){
+  return /<\/?(b|strong|i|em|u|s|strike|sub|sup|ul|ol|li|br|div|p|span)\b/i.test(s||"")
+      || /&(amp|lt|gt|nbsp|#\d+|#x[0-9a-f]+);/i.test(s||"");   /* already entity-encoded */
+}
+/* stored value -> HTML used for display & editing */
+function richToHtml(v){
+  if (!v) return "";
+  if (looksLikeHtml(v)) return v;
+  return escHtml(v).replace(/\n/g,"<br>");
+}
+/* is the (possibly-HTML) value effectively empty? */
+function richIsEmpty(v){
+  if (!v) return true;
+  const t = String(v).replace(/<[^>]*>/g,"").replace(/&nbsp;/gi," ").replace(/\u200b/g,"").trim();
+  return t.length === 0;
+}
+/* keep only whitelisted tags, drop every attribute */
+function sanitizeNode(node){
+  [...node.childNodes].forEach(ch => {
+    if (ch.nodeType === 3) return;                 /* text node — keep */
+    if (ch.nodeType !== 1){ ch.remove(); return; } /* comments etc. */
+    if (RT_DROP[ch.tagName]){ ch.remove(); return; } /* script/style — drop element + content */
+    sanitizeNode(ch);                              /* depth-first */
+    if (RT_ALLOWED[ch.tagName]){
+      [...ch.attributes].forEach(at => ch.removeAttribute(at.name));
+    } else {
+      while (ch.firstChild) node.insertBefore(ch.firstChild, ch);
+      ch.remove();
+    }
+  });
+}
+function sanitizeRich(html){
+  const box = document.createElement("div");
+  box.innerHTML = html || "";
+  sanitizeNode(box);
+  let out = box.innerHTML
+    .replace(/<div><br><\/div>/gi,"<br>")
+    .replace(/(?:\s|&nbsp;|<br>)+$/i,"")
+    .trim();
+  return richIsEmpty(out) ? "" : out;
+}
+/* HTML -> plain text (with line breaks & bullet markers) for Excel export */
+function richToPlain(v){
+  if (!v) return "";
+  if (!looksLikeHtml(v)) return v;
+  let s = String(v)
+    .replace(/<\s*br\s*\/?>/gi,"\n")
+    .replace(/<\/(p|div)>/gi,"\n")
+    .replace(/<li[^>]*>/gi,"\u2022 ")
+    .replace(/<\/li>/gi,"\n")
+    .replace(/<[^>]+>/g,"");
+  const ta = document.createElement("textarea"); ta.innerHTML = s; s = ta.value;
+  return s.replace(/\n{3,}/g,"\n\n").replace(/^\n+|\n+$/g,"");
+}
+function execCmd(cmd, val){ try { document.execCommand(cmd, false, val === undefined ? null : val); } catch(e){} }
+function placeCaretEnd(node){
+  const r = document.createRange(); r.selectNodeContents(node); r.collapse(false);
+  const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+}
+/* build a contenteditable editor for a rich field */
+function richEditable(value, ph, onSave){
+  const div = el("div",{class:"rt-edit", id:"editfield", contenteditable:"true", "data-ph":ph,
+    onblur:(e)=>{ onSave(sanitizeRich(e.currentTarget.innerHTML)); endEdit(); },
+    onkeydown:(e)=>{ if (e.key === "Escape"){ e.preventDefault(); e.currentTarget.blur(); } }});
+  div.innerHTML = richToHtml(value);
+  return div;
+}
+
+/* ---- floating formatting toolbar ---- */
+let richToolbarEl = null;
+const RT_BUTTONS = [
+  { cmd:"bold",               label:"<b>B</b>",          title:"Bold" },
+  { cmd:"italic",             label:"<i>I</i>",          title:"Italic" },
+  { cmd:"underline",          label:"<u>U</u>",          title:"Underline" },
+  { cmd:"strikeThrough",      label:"<s>S</s>",          title:"Strikethrough" },
+  { sep:true },
+  { cmd:"insertUnorderedList", icon:"bulletList",         title:"Bulleted list" },
+  { cmd:"insertOrderedList",   icon:"numberList",         title:"Numbered list" },
+  { sep:true },
+  { cmd:"superscript",        label:"x<sup>2</sup>",     title:"Superscript" },
+  { cmd:"subscript",          label:"x<sub>2</sub>",     title:"Subscript" },
+  { sep:true },
+  { cmd:"removeFormat",       icon:"clearFmt",            title:"Clear formatting" }
+];
+const RT_STATE_CMDS = ["bold","italic","underline","strikeThrough","insertUnorderedList","insertOrderedList","superscript","subscript"];
+function showRichToolbar(editor){
+  removeRichToolbar();
+  const bar = el("div",{class:"rt-toolbar"});
+  RT_BUTTONS.forEach(b => {
+    if (b.sep){ bar.appendChild(el("span",{class:"rt-tsep"})); return; }
+    const btn = el("button",{class:"rt-tbtn", type:"button", title:b.title,
+      html: b.icon ? ICONS[b.icon] : b.label,
+      onmousedown:(e)=>{
+        e.preventDefault();                              /* keep selection in the editor */
+        if (document.activeElement !== editor) editor.focus();
+        execCmd(b.cmd);
+        updateRichToolbarState(bar);
+      }});
+    btn.dataset.cmd = b.cmd;
+    bar.appendChild(btn);
+  });
+  document.body.appendChild(bar);
+  richToolbarEl = bar;
+  positionRichToolbar(bar, editor);
+  updateRichToolbarState(bar);
+  editor.addEventListener("keyup", ()=>updateRichToolbarState(bar));
+  editor.addEventListener("mouseup", ()=>updateRichToolbarState(bar));
+}
+function positionRichToolbar(bar, editor){
+  const r = editor.getBoundingClientRect();
+  const br = bar.getBoundingClientRect();
+  let top = r.top - br.height - 7;
+  if (top < 8) top = r.bottom + 7;                       /* flip below if no room above */
+  let left = Math.min(r.left, window.innerWidth - br.width - 10);
+  left = Math.max(10, left);
+  bar.style.top = top + "px"; bar.style.left = left + "px";
+}
+function updateRichToolbarState(bar){
+  bar.querySelectorAll(".rt-tbtn").forEach(btn => {
+    const cmd = btn.dataset.cmd;
+    if (RT_STATE_CMDS.indexOf(cmd) < 0) return;
+    let on = false; try { on = document.queryCommandState(cmd); } catch(e){}
+    btn.classList.toggle("on", on);
+  });
+}
+function removeRichToolbar(){ if (richToolbarEl){ richToolbarEl.remove(); richToolbarEl = null; } }
+function repositionRichToolbar(){
+  if (!richToolbarEl) return;
+  const f = document.getElementById("editfield");
+  if (f && f.classList.contains("rt-edit")) positionRichToolbar(richToolbarEl, f);
+  else removeRichToolbar();
+}
+
 function projStats(p){
   const cp = DATA.activeCp; const c = { backlog:0, prog:0, done:0, cancel:0 };
   p.activities.forEach(a => { const st = (a.cps && a.cps[cp] && a.cps[cp].st) || "backlog"; if (c[st] != null) c[st]++; });
@@ -689,6 +859,7 @@ function render(){
   if (!DATA){ return; }                       /* still booting */
   pendingRender = false;
   wrap.innerHTML = "";
+  removeRichToolbar();
 
   document.documentElement.style.setProperty("--w-no", colW("no")+"px");
   document.documentElement.style.setProperty("--w-project", colW("project")+"px");
@@ -820,10 +991,16 @@ function render(){
     const f = document.getElementById("editfield");
     if (f){
       f.focus();
-      if (f.setSelectionRange){ const v=f.value; f.setSelectionRange(v.length,v.length); }
-      if (f.tagName === "TEXTAREA"){
-        const grow=()=>{ f.style.height="auto"; f.style.height=Math.max(f.scrollHeight,30)+"px"; };
-        f.addEventListener("input",grow); grow();
+      if (f.classList.contains("rt-edit")){
+        placeCaretEnd(f);
+        execCmd("styleWithCSS", false);   /* emit <b>/<i> tags, not inline styles */
+        showRichToolbar(f);
+      } else {
+        if (f.setSelectionRange){ const v=f.value; f.setSelectionRange(v.length,v.length); }
+        if (f.tagName === "TEXTAREA"){
+          const grow=()=>{ f.style.height="auto"; f.style.height=Math.max(f.scrollHeight,30)+"px"; };
+          f.addEventListener("input",grow); grow();
+        }
       }
     }
   }
@@ -891,14 +1068,10 @@ function workItemCell(p,a,cp){
   const d = (a.cps && a.cps[cp.id]) || { wi:"", st:"backlog" };
   const key = "wi:"+p.id+":"+a.id+":"+cp.id;
   if (editKey === key){
-    const ta = el("textarea",{class:"cell-edit", id:"editfield", rows:2,
-      onblur:(e)=>{ setCps(p.id,a.id,cp.id,"wi",e.target.value); endEdit(); },
-      onkeydown:(e)=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); e.target.blur(); } }});
-    ta.value = d.wi||"";
-    return el("td",{class:"c-wi"}, ta);
+    return el("td",{class:"c-wi"}, richEditable(d.wi, "Input Work Item here...", (v)=>setCps(p.id,a.id,cp.id,"wi",v)));
   }
-  return el("td",{class:"c-wi"}, el("div",{class:"cell-text"+(d.wi?"":" empty"), "data-ph":"Input Work Item here...",
-    onclick:()=>startEdit(key)}, d.wi||""));
+  return el("td",{class:"c-wi"}, el("div",{class:"cell-text"+(richIsEmpty(d.wi)?" empty":""),
+    "data-ph":"Input Work Item here...", html:richToHtml(d.wi), onclick:()=>startEdit(key)}));
 }
 
 /* ---------- status pill (dropdown) ---------- */
@@ -930,13 +1103,10 @@ function statusMenu(e,p,a,cp,current){
 /* ---------- generic text cell (next / note) ---------- */
 function textCell(p,a,field,key,ph){
   if (editKey === key){
-    const ta = el("textarea",{class:"cell-edit", id:"editfield", rows:2,
-      onblur:(e)=>{ setActivityField(p.id,a.id,field,e.target.value); endEdit(); },
-      onkeydown:(e)=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); e.target.blur(); } }});
-    ta.value = a[field]||"";
-    return el("td",null, ta);
+    return el("td",null, richEditable(a[field], ph, (v)=>setActivityField(p.id,a.id,field,v)));
   }
-  return el("td",null, el("div",{class:"cell-text"+(a[field]?"":" empty"), "data-ph":ph, onclick:()=>startEdit(key)}, a[field]||""));
+  return el("td",null, el("div",{class:"cell-text"+(richIsEmpty(a[field])?" empty":""),
+    "data-ph":ph, html:richToHtml(a[field]), onclick:()=>startEdit(key)}));
 }
 
 /* ---------- due date cell ---------- */
@@ -1083,10 +1253,18 @@ function startActivityDrag(e, pid, aid, tr){
   if (!grid) return;
   const gridRect = grid.getBoundingClientRect();
   const trRect = tr.getBoundingClientRect();
+  const actCell = tr.querySelector(".c-activities");
+  const startLeft = actCell ? actCell.getBoundingClientRect().left : gridRect.left;
+  /* exact width = sum of every column from Activities onward (skip No. + Project) */
+  let floatW = 0;
+  [...tr.children].forEach(td => {
+    if (td.classList.contains("c-no") || td.classList.contains("c-project")) return;
+    floatW += td.getBoundingClientRect().width;
+  });
   const float = buildDragFloat(grid, tr);
-  float.style.left  = gridRect.left + "px";
+  float.style.left  = startLeft + "px";
   float.style.top   = trRect.top + "px";
-  float.style.width = grid.offsetWidth + "px";
+  float.style.width = Math.max(0, floatW) + "px";
   document.body.appendChild(float);
   tr.classList.add("dragging-src");
   dragState = { pid, aid, tr, float, offsetY: e.clientY - trRect.top, targetAid:null, after:false };
@@ -1098,7 +1276,11 @@ function startActivityDrag(e, pid, aid, tr){
 function buildDragFloat(grid, tr){
   const float = el("table",{class:"grid drag-float"});
   const cg = grid.querySelector("colgroup");
-  if (cg) float.appendChild(cg.cloneNode(true));
+  if (cg){
+    const ncg = el("colgroup");                   /* skip No. + Project columns */
+    [...cg.children].forEach((col,i)=>{ if (i >= 2) ncg.appendChild(col.cloneNode(true)); });
+    float.appendChild(ncg);
+  }
   const blank = ()=> el("td",{class:"drag-blank"});
   const row = el("tr");
   let actClone = null; const cpClones = []; const tailClones = [];
@@ -1108,9 +1290,10 @@ function buildDragFloat(grid, tr){
     if (td.classList.contains("c-wi") || td.classList.contains("c-st") || td.classList.contains("cp-collapsed-c")) { cpClones.push(td.cloneNode(true)); return; }
     tailClones.push(td.cloneNode(true));
   });
-  const scrub = (n)=>{ n.removeAttribute("rowspan"); n.querySelectorAll("[id]").forEach(x=>x.removeAttribute("id")); };
-  row.appendChild(blank()); row.appendChild(blank());                         /* No., Project */
-  if (actClone){ scrub(actClone); row.appendChild(actClone); } else row.appendChild(blank());
+  const scrub = (n)=>{ n.removeAttribute("rowspan");
+    n.querySelectorAll("[id]").forEach(x=>x.removeAttribute("id"));
+    n.querySelectorAll("[contenteditable]").forEach(x=>x.removeAttribute("contenteditable")); };
+  if (actClone){ scrub(actClone); row.appendChild(actClone); } else row.appendChild(blank());  /* Activities = leftmost */
   cpClones.forEach(c => { scrub(c); row.appendChild(c); });
   row.appendChild(blank());                                                   /* Add Checkpoint */
   tailClones.forEach(c => { scrub(c); row.appendChild(c); });                 /* Next, Due, Note */
@@ -1246,8 +1429,8 @@ function exportExcel(){
       if (ai===0){ row += cN(C.no,r,6,pi+1)+cT(C.project,r,7,p.name)+cT(C.desc,r,8,p.desc); }
       row += cT(C.act,r,7,a.name);
       cps.forEach((cp,k)=>{ const d=(a.cps&&a.cps[cp.id])||{}; const st=d.st||"backlog";
-        row += cT(cpWi[k],r,1,d.wi||"")+cT(cpSt[k],r,stXf[st],STMETA[st].label); });
-      row += cT(nextIdx,r,1,a.next||"")+cT(dueIdx,r,13,fmtDate(a.due))+cT(noteIdx,r,1,a.note||"")+'</row>';
+        row += cT(cpWi[k],r,1,richToPlain(d.wi))+cT(cpSt[k],r,stXf[st],STMETA[st].label); });
+      row += cT(nextIdx,r,1,richToPlain(a.next))+cT(dueIdx,r,13,fmtDate(a.due))+cT(noteIdx,r,1,richToPlain(a.note))+'</row>';
       rows += row; r++;
     });
     if (span>1){ [C.no,C.project,C.desc].forEach(c=>merges.push(L(c)+firstR+":"+L(c)+(r-1))); }
@@ -1293,8 +1476,8 @@ function exportExcelFallback(){
       if(ai===0){ h+='<td rowspan="'+span+'" align="center" valign="top">'+(pi+1)+'</td><td rowspan="'+span+'" valign="top"><b>'+esc(p.name)+'</b></td><td rowspan="'+span+'" valign="top" style="color:#666">'+esc(p.desc)+'</td>'; }
       h+='<td valign="top"><b>'+esc(a.name)+'</b></td>';
       DATA.checkpoints.forEach(cp=>{ const d=(a.cps&&a.cps[cp.id])||{}; const st=d.st||"backlog";
-        h+='<td valign="top">'+esc(d.wi)+'</td><td align="center" bgcolor="'+XF[st]+'" style="color:'+XT[st]+'"><b>'+esc(STMETA[st].label)+'</b></td>'; });
-      h+='<td valign="top">'+esc(a.next)+'</td><td align="center" valign="top">'+esc(fmtDate(a.due))+'</td><td valign="top">'+esc(a.note)+'</td></tr>';
+        h+='<td valign="top">'+esc(richToPlain(d.wi))+'</td><td align="center" bgcolor="'+XF[st]+'" style="color:'+XT[st]+'"><b>'+esc(STMETA[st].label)+'</b></td>'; });
+      h+='<td valign="top">'+esc(richToPlain(a.next))+'</td><td align="center" valign="top">'+esc(fmtDate(a.due))+'</td><td valign="top">'+esc(richToPlain(a.note))+'</td></tr>';
     });
   });
   h+='</table>';
@@ -1311,6 +1494,8 @@ function exportExcelFallback(){
    ========================================================================= */
 document.getElementById("addProjectBtn").addEventListener("click", addProject);
 document.getElementById("exportBtn").addEventListener("click", exportExcel);
+window.addEventListener("scroll", repositionRichToolbar, true);
+window.addEventListener("resize", repositionRichToolbar);
 
 (async function start(){
   try { await ensureConfig(); } catch(e){ fail(e); }

@@ -92,14 +92,15 @@ const ICONS = {
 /* =========================================================================
    5. Status meta
    ========================================================================= */
-const STATUS = ["backlog","prog","done","cancel"];
+const STATUS = ["backlog","prog","done","cancel","pause"];
 const STMETA = {
   backlog:{ label:"Backlog",      cls:"back"   },
   prog:   { label:"On Progress",  cls:"prog"   },
   done:   { label:"Done",         cls:"done"   },
-  cancel: { label:"Cancelled",    cls:"cancel" }
+  cancel: { label:"Cancelled",    cls:"cancel" },
+  pause:  { label:"Paused",       cls:"pause"  }
 };
-const SUMDOT = { backlog:"#c5c5cc", prog:"#f0a500", done:"#2bb24c", cancel:"#8a8a8e" };
+const SUMDOT = { backlog:"#c5c5cc", prog:"#f0a500", done:"#2bb24c", cancel:"#8a8a8e", pause:"#6e4f34" };
 
 /* =========================================================================
    6. Column widths

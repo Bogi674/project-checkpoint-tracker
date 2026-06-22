@@ -1,5 +1,5 @@
 /* =========================================================================
-   Project Tracker — tracker.js  (v2.3)
+   Project Tracker — tracker.js  (v2.4)
    -------------------------------------------------------------------------
    Data model (Firestore):
 
@@ -14,12 +14,25 @@
 
      projects/{projectId}/activities/{activityId}
         { name, next, due, note, order, cps:{ [cpId]:{wi,st} } }
+
+     notifications/{id}                                            (v2.4)
+        { toEmail, fromEmail, fromName, text, projectName,
+          activityName, field, createdAt: ms, read: bool }
+
+     presence/{email}                                             (v2.4)
+        { email, name, color, lastActive: ms }
+   -------------------------------------------------------------------------
+   v2.4 adds:
+     • View-only share links  — open ?view=1 to read the tracker with no
+       sign-in and zero edit ability.
+     • @mentions + a notification bell (red dot on unread).
+     • Live "currently online" member avatars (presence).
    ========================================================================= */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
 import {
   initializeFirestore, doc, collection, getDoc, getDocs, setDoc, updateDoc,
-  deleteDoc, onSnapshot, writeBatch, deleteField,
+  deleteDoc, onSnapshot, writeBatch, deleteField, query, where,
   persistentLocalCache, persistentMultipleTabManager
 } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
 import {
@@ -56,12 +69,30 @@ const actRef   = (pid,aid) => doc(db, "projects", pid, "activities", aid);
 const actCol   = (pid)     => collection(db, "projects", pid, "activities");
 const memberRef = (email)  => doc(db, "members", email);
 const membersCol = ()      => collection(db, "members");
+const notifCol   = ()      => collection(db, "notifications");
+const notifRef   = (id)    => doc(db, "notifications", id);
+const presenceRef= (email) => doc(db, "presence", email);
+const presenceCol= ()      => collection(db, "presence");
 
 /* =========================================================================
-   3. Auth state
+   3. Auth state  +  view-only mode
    ========================================================================= */
 let currentUser   = null;
 let currentMember = null;  // { role: "admin"|"member", ... }
+
+/* View-only share mode: open the page with ?view=1 (or #view) to read the
+   tracker without signing in. Every edit affordance is disabled. */
+const READ_ONLY = new URLSearchParams(location.search).has("view")
+               || location.hash.replace("#","") === "view";
+
+/* Member directory (for @mentions), notifications and presence */
+const MEMBERS = new Map();          // email -> { role, name }
+let   NOTIFS  = [];                 // notifications for the current user
+let   notifUnsub     = null;
+let   membersUnsub   = null;
+let   presenceUnsub  = null;
+let   presenceTimer  = null;
+let   notifPanelOpen = false;
 
 /* =========================================================================
    4. Icons
@@ -86,7 +117,8 @@ const ICONS = {
   numberList: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h11M10 12h11M10 18h11"/><text x="1.5" y="8" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">1</text><text x="1.5" y="14" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">2</text><text x="1.5" y="20" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">3</text></svg>',
   clearFmt:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5h11M11 5v9M4 20l16-16"/></svg>',
   users:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-  logout:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>'
+  logout:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>',
+  bell:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>'
 };
 
 /* =========================================================================
@@ -195,7 +227,28 @@ function showAppState(){
   const wrap    = document.getElementById("wrap");
   if (actions) actions.style.display = "flex";
   if (wrap)    wrap.style.display    = "";
-  mountAuthTopbar();
+  if (READ_ONLY){
+    document.body.classList.add("read-only");
+    const addBtn = document.getElementById("addProjectBtn");
+    if (addBtn) addBtn.style.display = "none";
+    mountReadOnlyTopbar();
+  } else {
+    mountAuthTopbar();
+  }
+}
+
+/* Slim topbar for view-only visitors — just a badge, no account chrome */
+function mountReadOnlyTopbar(){
+  let existing = document.getElementById("authTopbar");
+  if (existing) existing.remove();
+  const container = document.createElement("div");
+  container.id = "authTopbar";
+  container.style.cssText = "display:flex;align-items:center;gap:8px";
+  const badge = document.createElement("span");
+  badge.className = "view-badge";
+  badge.innerHTML = ICONS.eye + "<span>View only</span>";
+  container.appendChild(badge);
+  document.getElementById("topbar").appendChild(container);
 }
 
 /* Auth elements injected into topbar */
@@ -206,6 +259,21 @@ function mountAuthTopbar(){
   const container = document.createElement("div");
   container.id = "authTopbar";
   container.style.cssText = "display:flex;align-items:center;gap:8px";
+
+  // Currently-online member avatars (filled in live by renderPresence)
+  const presence = document.createElement("div");
+  presence.id = "presenceStrip";
+  presence.className = "presence";
+  container.appendChild(presence);
+
+  // Notification bell with unread dot
+  const bellWrap = document.createElement("button");
+  bellWrap.id = "notifBell";
+  bellWrap.className = "btn-bell";
+  bellWrap.title = "Notifications";
+  bellWrap.innerHTML = ICONS.bell + '<span class="notif-dot" id="notifDot" style="display:none"></span>';
+  bellWrap.addEventListener("click", toggleNotifPanel);
+  container.appendChild(bellWrap);
 
   // Members button — admins only
   if (currentMember && currentMember.role === "admin"){
@@ -273,6 +341,13 @@ function signOutCleanup(){
   ACT_UNSUBS.clear();
   ACTIVITIES.clear();
   PROJECTS.clear();
+  if (membersUnsub)  { try { membersUnsub();  } catch(_){} membersUnsub  = null; }
+  if (notifUnsub)    { try { notifUnsub();    } catch(_){} notifUnsub    = null; }
+  if (presenceUnsub) { try { presenceUnsub(); } catch(_){} presenceUnsub = null; }
+  if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
+  MEMBERS.clear();
+  NOTIFS = [];
+  notifPanelOpen = false;
   CONFIG   = null;
   DATA     = null;
   booted   = false;
@@ -416,6 +491,306 @@ async function loadMembersIntoList(list){
     list.innerHTML = '<div class="mm-empty">Error loading members.</div>';
     console.error(e);
   }
+}
+
+/* =========================================================================
+   10b. Member directory (for @mentions)
+   ========================================================================= */
+function subscribeMembers(){
+  if (membersUnsub) return;
+  membersUnsub = onSnapshot(membersCol(), (snap)=>{
+    MEMBERS.clear();
+    snap.forEach(d => {
+      const data = d.data() || {};
+      MEMBERS.set(d.id, { role:data.role||"member", name:data.name || d.id.split("@")[0] });
+    });
+  }, ()=>{ /* non-fatal: mentions just won't autocomplete */ });
+}
+function memberLabel(email){
+  const m = MEMBERS.get(email);
+  return (m && m.name) || (email || "").split("@")[0] || email;
+}
+
+/* =========================================================================
+   10c. Presence — "currently online" avatars (Google-Docs style)
+   ========================================================================= */
+const PRESENCE_WINDOW = 45000;   // treated as online if seen in last 45s
+const PRESENCE_BEAT   = 20000;   // heartbeat every 20s
+const AVATAR_COLORS   = ["#5e5ce6","#0a84ff","#2bb24c","#f0a500","#e24b4a","#af52de","#ff7a45","#1abc9c","#6e4f34","#3a7afe"];
+function colorFor(email){
+  let h = 0; const s = email||"";
+  for (let i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+function startPresence(){
+  if (!currentUser || READ_ONLY) return;
+  const beat = ()=>{
+    setDoc(presenceRef(currentUser.email), {
+      email: currentUser.email,
+      name:  currentUser.displayName || currentUser.email.split("@")[0],
+      color: colorFor(currentUser.email),
+      lastActive: Date.now()
+    }, { merge:true }).catch(()=>{});
+  };
+  beat();
+  presenceTimer = setInterval(beat, PRESENCE_BEAT);
+  document.addEventListener("visibilitychange", ()=>{ if (!document.hidden) beat(); });
+  window.addEventListener("beforeunload", ()=>{ try { deleteDoc(presenceRef(currentUser.email)); } catch(_){} });
+
+  presenceUnsub = onSnapshot(presenceCol(), (snap)=>{
+    const now  = Date.now();
+    const list = [];
+    snap.forEach(d => {
+      const p = d.data() || {};
+      if (p.lastActive && (now - p.lastActive) < PRESENCE_WINDOW) list.push(p);
+    });
+    renderPresence(list);
+  }, ()=>{});
+}
+function renderPresence(list){
+  const strip = document.getElementById("presenceStrip");
+  if (!strip) return;
+  strip.innerHTML = "";
+  // self first, then others, by name
+  list.sort((a,b)=>{
+    const am = a.email === (currentUser&&currentUser.email), bm = b.email === (currentUser&&currentUser.email);
+    if (am !== bm) return am ? -1 : 1;
+    return (a.name||"").localeCompare(b.name||"");
+  });
+  const MAX = 5;
+  list.slice(0, MAX).forEach(p => {
+    const me = currentUser && p.email === currentUser.email;
+    const av = el("div",{ class:"pav", title:(p.name||p.email)+(me?" (you)":""),
+      style:"background:"+(p.color||colorFor(p.email)) },
+      (p.name||p.email||"?")[0].toUpperCase());
+    strip.appendChild(av);
+  });
+  if (list.length > MAX){
+    strip.appendChild(el("div",{ class:"pav pav-more", title:(list.length-MAX)+" more online" }, "+"+(list.length-MAX)));
+  }
+}
+
+/* =========================================================================
+   10d. Notifications + @mentions
+   ========================================================================= */
+function subscribeNotifs(){
+  if (notifUnsub || !currentUser) return;
+  const q = query(notifCol(), where("toEmail","==", currentUser.email));
+  notifUnsub = onSnapshot(q, (snap)=>{
+    NOTIFS = [];
+    snap.forEach(d => NOTIFS.push(Object.assign({ id:d.id }, d.data())));
+    NOTIFS.sort((a,b)=> (b.createdAt||0) - (a.createdAt||0));
+    updateNotifDot();
+    if (notifPanelOpen) renderNotifPanel();
+  }, ()=>{});
+}
+function unreadCount(){ return NOTIFS.filter(n => !n.read).length; }
+function updateNotifDot(){
+  const dot = document.getElementById("notifDot");
+  if (!dot) return;
+  dot.style.display = unreadCount() > 0 ? "block" : "none";
+}
+function relTime(ms){
+  const s = Math.floor((Date.now()-ms)/1000);
+  if (s < 60)    return "just now";
+  if (s < 3600)  return Math.floor(s/60)+"m ago";
+  if (s < 86400) return Math.floor(s/3600)+"h ago";
+  return Math.floor(s/86400)+"d ago";
+}
+function toggleNotifPanel(){
+  if (notifPanelOpen){ closeNotifPanel(); return; }
+  notifPanelOpen = true;
+  renderNotifPanel();
+  // mark everything read once opened
+  const unread = NOTIFS.filter(n => !n.read);
+  if (unread.length){
+    const batch = writeBatch(db);
+    unread.forEach(n => batch.update(notifRef(n.id), { read:true }));
+    batch.commit().catch(()=>{});
+  }
+  setTimeout(()=>document.addEventListener("mousedown", outsideNotif, true), 0);
+}
+function outsideNotif(e){
+  if (!e.target.closest("#notifPanel") && !e.target.closest("#notifBell")) closeNotifPanel();
+}
+function closeNotifPanel(){
+  notifPanelOpen = false;
+  const p = document.getElementById("notifPanel");
+  if (p) p.remove();
+  document.removeEventListener("mousedown", outsideNotif, true);
+}
+function renderNotifPanel(){
+  let panel = document.getElementById("notifPanel");
+  if (panel) panel.remove();
+  panel = el("div",{ id:"notifPanel", class:"notif-panel" });
+  panel.appendChild(el("div",{ class:"notif-head" }, "Notifications"));
+  const body = el("div",{ class:"notif-body" });
+  if (!NOTIFS.length){
+    body.appendChild(el("div",{ class:"notif-empty" }, "You're all caught up."));
+  } else {
+    NOTIFS.slice(0, 40).forEach(n => {
+      const ctx = [n.projectName, n.activityName].filter(Boolean).join(" › ");
+      const row = el("div",{ class:"notif-item"+(n.read?"":" unread") },
+        el("div",{ class:"notif-ava", style:"background:"+colorFor(n.fromEmail||"") },
+          (memberLabel(n.fromEmail)||"?")[0].toUpperCase()),
+        el("div",{ class:"notif-txt" },
+          el("div",{ class:"notif-line" },
+            el("b",null, memberLabel(n.fromEmail)), " ", n.text || "mentioned you",
+            n.field ? el("span",{ class:"notif-field" }, " in "+n.field) : null),
+          ctx ? el("div",{ class:"notif-ctx" }, ctx) : null,
+          el("div",{ class:"notif-time" }, relTime(n.createdAt||Date.now()))));
+      body.appendChild(row);
+    });
+  }
+  panel.appendChild(body);
+  const bell = document.getElementById("notifBell");
+  document.body.appendChild(panel);
+  const r = bell.getBoundingClientRect();
+  const pr = panel.getBoundingClientRect();
+  panel.style.top  = (r.bottom + 8) + "px";
+  panel.style.left = Math.max(10, Math.min(r.right - pr.width, window.innerWidth - pr.width - 10)) + "px";
+}
+
+/* Extract the set of mentioned emails from a rich-text HTML string */
+function mentionsIn(html){
+  const set = new Set();
+  if (!html) return set;
+  const box = document.createElement("div");
+  box.innerHTML = html;
+  box.querySelectorAll("span.mention[data-email]").forEach(s => {
+    const e = s.getAttribute("data-email");
+    if (e) set.add(e);
+  });
+  return set;
+}
+/* Fire notification docs for newly-added mentions on a field */
+function notifyNewMentions(oldVal, newVal, ctx){
+  if (READ_ONLY || !currentUser) return;
+  const before = mentionsIn(oldVal);
+  const after  = mentionsIn(newVal);
+  const fresh  = [...after].filter(e => !before.has(e) && e !== currentUser.email);
+  if (!fresh.length) return;
+  const batch = writeBatch(db);
+  fresh.forEach(email => {
+    batch.set(notifRef(uid()+uid()), {
+      toEmail:      email,
+      fromEmail:    currentUser.email,
+      fromName:     currentUser.displayName || currentUser.email.split("@")[0],
+      text:         "mentioned you",
+      field:        ctx.field || "",
+      projectName:  ctx.projectName || "",
+      activityName: ctx.activityName || "",
+      createdAt:    Date.now(),
+      read:         false
+    });
+  });
+  batch.commit().catch(()=>{});
+}
+
+/* ---- @mention autocomplete inside a contenteditable rich editor ---- */
+let mentionPop = null;
+let mentionAnchor = null;   // { range info } not needed; we re-scan caret each time
+function closeMentionPop(){
+  if (mentionPop){ mentionPop.remove(); mentionPop = null; }
+}
+function currentMentionToken(editor){
+  // Find an "@token" immediately before the caret within the same text node
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return null;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return null;
+  const node = range.startContainer;
+  if (node.nodeType !== 3) return null;          // must be a text node
+  const text = node.textContent.slice(0, range.startOffset);
+  const m = /(?:^|\s)@([\w.\-]*)$/.exec(text);
+  if (!m) return null;
+  return { node, token: m[1], start: range.startOffset - m[1].length - 1 };
+}
+function handleMentionInput(editor){
+  const info = currentMentionToken(editor);
+  if (!info){ closeMentionPop(); return; }
+  const tok = info.token.toLowerCase();
+  const matches = [...MEMBERS.keys()]
+    .filter(e => e !== (currentUser && currentUser.email))
+    .filter(e => e.toLowerCase().includes(tok) || memberLabel(e).toLowerCase().includes(tok))
+    .slice(0, 6);
+  if (!matches.length){ closeMentionPop(); return; }
+  showMentionPop(editor, matches, info);
+}
+function showMentionPop(editor, emails, info){
+  closeMentionPop();
+  mentionPop = el("div",{ class:"mention-pop" });
+  emails.forEach((email, i) => {
+    const item = el("div",{ class:"mention-item"+(i===0?" active":""), "data-email":email,
+      onmousedown:(e)=>{ e.preventDefault(); insertMention(editor, email, info); }},
+      el("div",{ class:"mention-ava", style:"background:"+colorFor(email) }, memberLabel(email)[0].toUpperCase()),
+      el("div",{ class:"mention-meta" },
+        el("div",{ class:"mention-name" }, memberLabel(email)),
+        el("div",{ class:"mention-email" }, email)));
+    mentionPop.appendChild(item);
+  });
+  document.body.appendChild(mentionPop);
+  positionMentionPop(editor);
+}
+function positionMentionPop(editor){
+  if (!mentionPop) return;
+  const sel = window.getSelection();
+  let rect;
+  if (sel.rangeCount){
+    const r = sel.getRangeAt(0).getClientRects()[0];
+    rect = r || editor.getBoundingClientRect();
+  } else rect = editor.getBoundingClientRect();
+  const pr = mentionPop.getBoundingClientRect();
+  let top = rect.bottom + 6;
+  if (top + pr.height > window.innerHeight - 8) top = rect.top - pr.height - 6;
+  mentionPop.style.top  = top + "px";
+  mentionPop.style.left = Math.max(10, Math.min(rect.left, window.innerWidth - pr.width - 10)) + "px";
+}
+function insertMention(editor, email, info){
+  // Replace the "@token" text with a non-editable mention chip
+  const node = info.node;
+  const text = node.textContent;
+  const before = text.slice(0, info.start);
+  const after  = text.slice(info.start + 1 + info.token.length);
+  const parent = node.parentNode;
+
+  const chip = document.createElement("span");
+  chip.className = "mention";
+  chip.setAttribute("data-email", email);
+  chip.setAttribute("contenteditable", "false");
+  chip.textContent = "@" + memberLabel(email);
+
+  const tailText = document.createTextNode("\u00a0" + after);
+  const beforeNode = document.createTextNode(before);
+  parent.replaceChild(tailText, node);
+  parent.insertBefore(chip, tailText);
+  parent.insertBefore(beforeNode, chip);
+
+  // place caret right after the inserted space
+  const range = document.createRange();
+  range.setStart(tailText, 1);
+  range.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges(); sel.addRange(range);
+  closeMentionPop();
+  editor.focus();
+}
+function mentionKeydown(e, editor){
+  if (!mentionPop) return false;
+  const items = [...mentionPop.querySelectorAll(".mention-item")];
+  let idx = items.findIndex(it => it.classList.contains("active"));
+  if (e.key === "ArrowDown"){ e.preventDefault(); idx = (idx+1) % items.length; }
+  else if (e.key === "ArrowUp"){ e.preventDefault(); idx = (idx-1+items.length) % items.length; }
+  else if (e.key === "Enter" || e.key === "Tab"){
+    e.preventDefault();
+    const it = items[idx<0?0:idx];
+    if (it){ const info = currentMentionToken(editor); if (info) insertMention(editor, it.getAttribute("data-email"), info); }
+    return true;
+  } else if (e.key === "Escape"){ closeMentionPop(); return true; }
+  else return false;
+  items.forEach(it => it.classList.remove("active"));
+  if (items[idx]) items[idx].classList.add("active");
+  return true;
 }
 
 /* =========================================================================
@@ -653,6 +1028,15 @@ function sanitizeNode(node){
     if (ch.nodeType === 3) return;
     if (ch.nodeType !== 1){ ch.remove(); return; }
     if (RT_DROP[ch.tagName]){ ch.remove(); return; }
+    // Preserve @mention chips: keep class + data-email, drop the rest
+    if (ch.tagName === "SPAN" && ch.classList.contains("mention") && ch.getAttribute("data-email")){
+      const email = ch.getAttribute("data-email");
+      [...ch.attributes].forEach(at => ch.removeAttribute(at.name));
+      ch.className = "mention";
+      ch.setAttribute("data-email", email);
+      ch.setAttribute("contenteditable", "false");
+      return; // do not recurse into / strip the chip
+    }
     sanitizeNode(ch);
     if (RT_ALLOWED[ch.tagName]){
       [...ch.attributes].forEach(at => ch.removeAttribute(at.name));
@@ -689,10 +1073,21 @@ function placeCaretEnd(node){
   const r = document.createRange(); r.selectNodeContents(node); r.collapse(false);
   const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
 }
-function richEditable(value, ph, onSave){
+function richEditable(value, ph, onSave, ctx){
+  const oldVal = value;
   const div = el("div",{ class:"rt-edit", id:"editfield", contenteditable:"true", "data-ph":ph,
-    onblur:(e)=>{ onSave(sanitizeRich(e.currentTarget.innerHTML)); endEdit(); },
-    onkeydown:(e)=>{ if (e.key === "Escape"){ e.preventDefault(); e.currentTarget.blur(); } }});
+    oninput:(e)=>{ handleMentionInput(e.currentTarget); },
+    onblur:(e)=>{
+      closeMentionPop();
+      const nv = sanitizeRich(e.currentTarget.innerHTML);
+      onSave(nv);
+      if (ctx) notifyNewMentions(richToHtml(oldVal), nv, ctx);
+      endEdit();
+    },
+    onkeydown:(e)=>{
+      if (mentionKeydown(e, e.currentTarget)) return;
+      if (e.key === "Escape"){ e.preventDefault(); closeMentionPop(); e.currentTarget.blur(); }
+    }});
   div.innerHTML = richToHtml(value);
   return div;
 }
@@ -754,6 +1149,10 @@ function updateRichToolbarState(bar){
 }
 function removeRichToolbar(){ if (richToolbarEl){ richToolbarEl.remove(); richToolbarEl = null; } }
 function repositionRichToolbar(){
+  if (mentionPop){
+    const f = document.getElementById("editfield");
+    if (f) positionMentionPop(f);
+  }
   if (!richToolbarEl) return;
   const f = document.getElementById("editfield");
   if (f && f.classList.contains("rt-edit")) positionRichToolbar(richToolbarEl, f);
@@ -788,7 +1187,7 @@ function render(){
   const thead = el("thead");
   const grp   = el("tr", { class:"grp" });
   const thRz  = (label,cls,key,extra)=>{ const th=el("th",Object.assign({class:cls},extra||{}),label);
-    th.appendChild(el("div",{class:"rz", onmousedown:(e)=>startResize(e,key)})); return th; };
+    if (!READ_ONLY) th.appendChild(el("div",{class:"rz", onmousedown:(e)=>startResize(e,key)})); return th; };
 
   grp.appendChild(el("th",{class:"grp c-no rspan", rowspan:2}, "No."));
   grp.appendChild(thRz("Project","grp c-project rspan","project",{rowspan:2}));
@@ -798,18 +1197,18 @@ function render(){
     if (cp.collapsed){
       const inner = el("div",{class:"cpc-inner"}, icon("chevRight","cpc-chev"),
         el("span",{class:"cpc-lbl"}, cp.label.replace(/^As of\s*/i,"")));
-      grp.appendChild(el("th",{class:"grp cp-collapsed-h", rowspan:2, title:"Click to expand",
-        onclick:()=>setCheckpointField(cp.id,{collapsed:false})}, inner));
+      grp.appendChild(el("th",{class:"grp cp-collapsed-h", rowspan:2, title: READ_ONLY?cp.label:"Click to expand",
+        onclick: READ_ONLY?null:()=>setCheckpointField(cp.id,{collapsed:false})}, inner));
     } else {
       const isActive = cp.id === DATA.activeCp;
       const head = el("th",{class:"grp cpgrp"+(isActive?" cp-active-h":""), colspan:2},
         el("span",{class:"cplabel"}, cp.label),
-        el("span",{class:"cpmenu-btn", html:ICONS.chevDown, onclick:(e)=>checkpointMenu(e,cp)}));
+        READ_ONLY ? null : el("span",{class:"cpmenu-btn", html:ICONS.chevDown, onclick:(e)=>checkpointMenu(e,cp)}));
       grp.appendChild(head);
     }
   });
 
-  grp.appendChild(el("th",{class:"grp rspan", rowspan:2}, "Add Checkpoint"));
+  grp.appendChild(el("th",{class:"grp rspan", rowspan:2}, READ_ONLY ? "" : "Add Checkpoint"));
   grp.appendChild(thRz("Next Action","grp rspan","next",{rowspan:2}));
   grp.appendChild(thRz("Due Date","grp rspan","due",{rowspan:2}));
   grp.appendChild(thRz("Note/Remarks","grp rspan","note",{rowspan:2}));
@@ -841,8 +1240,8 @@ function render(){
       DATA.checkpoints.forEach(cp => {
         const d = (a.cps && a.cps[cp.id]) || { wi:"", st:"backlog" };
         if (cp.collapsed){
-          const td = el("td",{class:"cp-collapsed-c", title:STMETA[d.st||"backlog"].label+" — click to expand",
-            onclick:()=>setCheckpointField(cp.id,{collapsed:false})},
+          const td = el("td",{class:"cp-collapsed-c", title:STMETA[d.st||"backlog"].label+(READ_ONLY?"":" — click to expand"),
+            onclick: READ_ONLY?null:()=>setCheckpointField(cp.id,{collapsed:false})},
             el("span",{class:"cpc-dot", style:"background:"+SUMDOT[d.st||"backlog"]}));
           if (first) td.classList.add("rtop"); tr.appendChild(td);
         } else {
@@ -855,9 +1254,13 @@ function render(){
       });
 
       if (first){
-        tr.appendChild(el("td",{class:"c-addcp rtop", rowspan:span},
-          el("div",{class:"addcp-btn", onclick:()=>addCheckpoint()},
-            el("div",{class:"circ", html:ICONS.plus}), el("div",{class:"cap"},"Add Checkpoint"))));
+        if (READ_ONLY){
+          tr.appendChild(el("td",{class:"c-addcp rtop", rowspan:span}));
+        } else {
+          tr.appendChild(el("td",{class:"c-addcp rtop", rowspan:span},
+            el("div",{class:"addcp-btn", onclick:()=>addCheckpoint()},
+              el("div",{class:"circ", html:ICONS.plus}), el("div",{class:"cap"},"Add Checkpoint"))));
+        }
       }
 
       const nx = textCell(p,a,"next","nx:"+p.id+":"+a.id,"Add next action..."); if (first) nx.classList.add("rtop"); tr.appendChild(nx);
@@ -868,7 +1271,7 @@ function render(){
 
     const ar = el("tr",{class:"addrow"});
     ar.appendChild(el("td",{class:"c-activities addact"},
-      el("div",{class:"addact-btn", onclick:()=>addActivity(p.id)}, icon("plus"), "Add Activity")));
+      READ_ONLY ? null : el("div",{class:"addact-btn", onclick:()=>addActivity(p.id)}, icon("plus"), "Add Activity")));
     DATA.checkpoints.forEach(cp => { ar.appendChild(el("td")); if (!cp.collapsed) ar.appendChild(el("td")); });
     ar.appendChild(el("td")); ar.appendChild(el("td")); ar.appendChild(el("td",{class:"blk-br"}));
     tbody.appendChild(ar);
@@ -880,11 +1283,13 @@ function render(){
     wrap.appendChild(el("div",{class:"state"},
       el("div",{class:"state-ic", html:ICONS.folder}),
       el("h2",null,"No projects yet"),
-      el("p",null,"Add your first project to start tracking activities, checkpoints and progress.")));
+      el("p",null, READ_ONLY ? "This tracker has no projects yet." : "Add your first project to start tracking activities, checkpoints and progress.")));
   }
 
-  wrap.appendChild(el("div",{class:"add-proj-wrap"},
-    el("button",{class:"add-proj", onclick:()=>addProject()}, icon("plus"), "Add Project")));
+  if (!READ_ONLY){
+    wrap.appendChild(el("div",{class:"add-proj-wrap"},
+      el("button",{class:"add-proj", onclick:()=>addProject()}, icon("plus"), "Add Project")));
+  }
 
   document.querySelectorAll("[data-ic]").forEach(s => { if (s.children.length === 0) s.innerHTML = ICONS[s.getAttribute("data-ic")] || ""; });
 
@@ -915,22 +1320,23 @@ function endEdit(){ editKey = null; render(); }
    ========================================================================= */
 function projectCell(p, span){
   const td = el("td",{class:"c-project rtop", rowspan:span});
-  td.appendChild(el("span",{class:"pj-menu-btn", html:ICONS.dots, onclick:(e)=>projectMenu(e,p)}));
-  if (editKey === "pn:"+p.id){
+  if (!READ_ONLY)
+    td.appendChild(el("span",{class:"pj-menu-btn", html:ICONS.dots, onclick:(e)=>projectMenu(e,p)}));
+  if (!READ_ONLY && editKey === "pn:"+p.id){
     const ta = el("textarea",{class:"cell-edit", id:"editfield", rows:1,
       onblur:(e)=>{ mutProject(p.id,{name:e.target.value.trim()||"Untitled Project"}); endEdit(); },
       onkeydown:(e)=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); e.target.blur(); } }});
     ta.value = p.name||""; td.appendChild(ta);
   } else {
-    td.appendChild(el("div",{class:"pj-name", onclick:()=>startEdit("pn:"+p.id)}, p.name||"Untitled Project"));
+    td.appendChild(el("div",{class:"pj-name", onclick: READ_ONLY?null:()=>startEdit("pn:"+p.id)}, p.name||"Untitled Project"));
   }
-  if (editKey === "pd:"+p.id){
+  if (!READ_ONLY && editKey === "pd:"+p.id){
     const ta = el("textarea",{class:"cell-edit", id:"editfield", rows:2,
       onblur:(e)=>{ mutProject(p.id,{desc:e.target.value.trim()}); endEdit(); },
       onkeydown:(e)=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); e.target.blur(); } }});
     ta.value = p.desc||""; td.appendChild(ta);
-  } else {
-    td.appendChild(el("div",{class:"pj-desc", onclick:()=>startEdit("pd:"+p.id)}, p.desc||"Add description..."));
+  } else if (!READ_ONLY || p.desc){
+    td.appendChild(el("div",{class:"pj-desc", onclick: READ_ONLY?null:()=>startEdit("pd:"+p.id)}, p.desc||"Add description..."));
   }
   if (!p.hideProgress){
     const s = projStats(p);
@@ -946,11 +1352,14 @@ function projectCell(p, span){
 
 function activityCell(p,a){
   const td = el("td",{class:"c-activities"});
-  if (editKey === "an:"+p.id+":"+a.id){
+  if (!READ_ONLY && editKey === "an:"+p.id+":"+a.id){
     const ta = el("textarea",{class:"cell-edit", id:"editfield", rows:1,
       onblur:(e)=>{ setActivityField(p.id,a.id,"name",e.target.value.trim()||"Activity"); endEdit(); },
       onkeydown:(e)=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); e.target.blur(); } }});
     ta.value = a.name||""; td.appendChild(ta);
+  } else if (READ_ONLY){
+    td.appendChild(el("div",{class:"act-row"},
+      el("div",{class:"act-name act-name-ro"}, a.name||"Activity")));
   } else {
     td.appendChild(el("div",{class:"act-row"},
       el("span",{class:"act-grip", html:ICONS.grip, title:"Drag to reorder",
@@ -964,14 +1373,18 @@ function activityCell(p,a){
 function workItemCell(p,a,cp){
   const d   = (a.cps && a.cps[cp.id]) || { wi:"", st:"backlog" };
   const key = "wi:"+p.id+":"+a.id+":"+cp.id;
-  if (editKey === key) return el("td",{class:"c-wi"}, richEditable(d.wi, "Input Work Item here...", (v)=>setCps(p.id,a.id,cp.id,"wi",v)));
+  if (!READ_ONLY && editKey === key) return el("td",{class:"c-wi"}, richEditable(d.wi, "Input Work Item here...",
+    (v)=>setCps(p.id,a.id,cp.id,"wi",v), { field:"Work Item", projectName:p.name, activityName:a.name }));
   return el("td",{class:"c-wi"}, el("div",{class:"cell-text"+(richIsEmpty(d.wi)?" empty":""),
-    "data-ph":"Input Work Item here...", html:richToHtml(d.wi), onclick:()=>startEdit(key)}));
+    "data-ph":"Input Work Item here...", html:richToHtml(d.wi), onclick: READ_ONLY?null:()=>startEdit(key)}));
 }
 
 function statusCell(p,a,cp){
   const d  = (a.cps && a.cps[cp.id]) || { wi:"", st:"backlog" };
   const st = d.st || "backlog"; const m = STMETA[st];
+  if (READ_ONLY){
+    return el("td",{class:"c-st"}, el("span",{class:"pill "+m.cls}, el("span",{class:"pill-lbl"}, m.label)));
+  }
   return el("td",{class:"c-st"}, el("span",{class:"pill pill-dd "+m.cls, onclick:(e)=>statusMenu(e,p,a,cp,st)},
     el("span",{class:"pill-lbl"}, m.label), el("span",{class:"pill-caret", html:ICONS.chevDown})));
 }
@@ -993,19 +1406,21 @@ function statusMenu(e,p,a,cp,current){
 }
 
 function textCell(p,a,field,key,ph){
-  if (editKey === key) return el("td",null, richEditable(a[field], ph, (v)=>setActivityField(p.id,a.id,field,v)));
+  if (!READ_ONLY && editKey === key) return el("td",null, richEditable(a[field], ph,
+    (v)=>setActivityField(p.id,a.id,field,v),
+    { field: field==="next" ? "Next Action" : "Note", projectName:p.name, activityName:a.name }));
   return el("td",null, el("div",{class:"cell-text"+(richIsEmpty(a[field])?" empty":""),
-    "data-ph":ph, html:richToHtml(a[field]), onclick:()=>startEdit(key)}));
+    "data-ph":ph, html:richToHtml(a[field]), onclick: READ_ONLY?null:()=>startEdit(key)}));
 }
 
 function dueCell(p,a){
   const key = "due:"+p.id+":"+a.id;
-  if (editKey === key){
+  if (!READ_ONLY && editKey === key){
     const inp = el("input",{type:"date", id:"editfield", value:a.due||"", onchange:(e)=>{ setActivityField(p.id,a.id,"due",e.target.value); endEdit(); }});
     const tbd = el("button",{class:"mini-btn", onmousedown:(e)=>{ e.preventDefault(); setActivityField(p.id,a.id,"due",""); endEdit(); }},"TBD");
     return el("td",null, el("div",{class:"date-edit"}, inp, tbd));
   }
-  return el("td",null, el("div",{class:"due-text"+(a.due?"":" tbd"), onclick:()=>startEdit(key)}, icon("cal"), fmtDate(a.due)));
+  return el("td",null, el("div",{class:"due-text"+(a.due?"":" tbd"), onclick: READ_ONLY?null:()=>startEdit(key)}, icon("cal"), fmtDate(a.due)));
 }
 
 /* =========================================================================
@@ -1352,7 +1767,7 @@ function exportExcelFallback(){
 }
 
 /* =========================================================================
-   21. Boot — auth-driven
+   21. Boot — auth-driven (or view-only, no auth)
    ========================================================================= */
 document.getElementById("addProjectBtn").addEventListener("click", addProject);
 document.getElementById("exportBtn").addEventListener("click", exportExcel);
@@ -1360,6 +1775,13 @@ document.getElementById("googleSignInBtn").addEventListener("click", doSignIn);
 document.getElementById("accessDeniedSignOutBtn").addEventListener("click", doSignOut);
 window.addEventListener("scroll", repositionRichToolbar, true);
 window.addEventListener("resize", repositionRichToolbar);
+
+/* ---- View-only share mode: skip auth entirely, just read & display ---- */
+if (READ_ONLY){
+  showAppState();
+  subscribeConfig();
+  subscribeProjects();
+} else {
 
 /* Handle redirect result (popup-blocked fallback) */
 getRedirectResult(auth).catch(()=>{});
@@ -1388,6 +1810,9 @@ onAuthStateChanged(auth, async (user) => {
     try { await ensureConfig(); } catch(e){ fail(e); }
     subscribeConfig();
     subscribeProjects();
+    subscribeMembers();      // member directory for @mentions
+    subscribeNotifs();       // notification bell
+    startPresence();         // "currently online" heartbeat + listener
   } catch(e){
     console.error("Membership check failed:", e);
     showAuthScreen("accessDenied");
@@ -1395,3 +1820,5 @@ onAuthStateChanged(auth, async (user) => {
     if (emailEl) emailEl.textContent = "Signed in as: " + user.email;
   }
 });
+
+}

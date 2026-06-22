@@ -46,6 +46,70 @@ service cloud.firestore {
 
 
 // -----------------------------------------------------------------------------
+// (D) PRODUCTION v2.4 — RECOMMENDED.
+//     • Tracker data is PUBLIC-READ so ?view=1 share links work with no login.
+//     • All writes require an entry in the members/ collection.
+//     • Only admins can change the members list.
+//     • Adds notifications/ (mentions) and presence/ (online status).
+//
+//     ⚠️ Public-read means anyone who has the page URL can SEE the tracker.
+//        They cannot edit anything. If you do NOT want public viewing, change
+//        each `allow read: if true;` on meta/projects/activities to
+//        `allow read: if isMember();` and the ?view=1 links will stop working.
+//
+//     To use: delete block (A) above and uncomment everything below.
+// -----------------------------------------------------------------------------
+// rules_version = '2';
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//
+//     function isMember() {
+//       return request.auth != null
+//         && exists(/databases/$(database)/documents/members/$(request.auth.token.email));
+//     }
+//     function isAdmin() {
+//       return request.auth != null
+//         && exists(/databases/$(database)/documents/members/$(request.auth.token.email))
+//         && get(/databases/$(database)/documents/members/$(request.auth.token.email)).data.role == 'admin';
+//     }
+//
+//     // Tracker data — public read (for view-only links); writes need membership
+//     match /meta/{doc} {
+//       allow read: if true;
+//       allow write: if isMember();
+//     }
+//     match /projects/{projectId} {
+//       allow read: if true;
+//       allow write: if isMember();
+//       match /activities/{activityId} {
+//         allow read: if true;
+//         allow write: if isMember();
+//       }
+//     }
+//
+//     // Members list — only signed-in members can read; only admins can change
+//     match /members/{email} {
+//       allow read: if isMember();
+//       allow create, update, delete: if isAdmin();
+//     }
+//
+//     // Notifications — recipient reads/clears their own; any member can create
+//     match /notifications/{id} {
+//       allow read, update, delete: if isMember()
+//         && resource.data.toEmail == request.auth.token.email;
+//       allow create: if isMember();
+//     }
+//
+//     // Presence — members read everyone; each person writes only their own doc
+//     match /presence/{email} {
+//       allow read: if isMember();
+//       allow write: if isMember() && request.auth.token.email == email;
+//     }
+//   }
+// }
+
+
+// -----------------------------------------------------------------------------
 // (C) PRODUCTION + ALLOW-LIST — only specific people (by email).
 //     Tightest of the three. Edit the email list to suit your team.
 // -----------------------------------------------------------------------------
